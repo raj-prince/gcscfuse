@@ -1,2 +1,2 @@
 # gcscfuse
-C++ implementation of fuse offering of gcsfuse.
+C++ implementation of fuse offering for Google Cloud Storage.
