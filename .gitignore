@@ -31,5 +31,5 @@
 *.out
 *.app
 
-# Build file
-src/build/
+# Build directories
+**/build/
