@@ -74,7 +74,7 @@ void StatCache::insertFile(const std::string& path, off_t size, time_t mtime) {
     if (node) {
         node->exists = true;
         node->stat_info.is_directory = false;
-        node->stat_info.mode = S_IFREG | 0444;  // Read-only file
+        node->stat_info.mode = S_IFREG | 0644;  // Read-write file
         node->stat_info.size = size;
         node->stat_info.mtime = mtime;
         node->stat_info.metadata_loaded = true;
@@ -150,3 +150,45 @@ std::vector<std::string> StatCache::listDirectory(const std::string& path) const
     
     return entries;
 }
+
+void StatCache::remove(const std::string& path)
+{
+    std::vector<std::string> components = splitPath(path);
+    if (components.empty()) {
+        return;
+    }
+    
+    TrieNode* current = root_.get();
+    std::vector<TrieNode*> path_nodes;
+    path_nodes.push_back(current);
+    
+    // Navigate to the target node
+    for (const auto& component : components) {
+        auto it = current->children.find(component);
+        if (it == current->children.end()) {
+            return; // Path doesn't exist, nothing to remove
+        }
+        current = it->second.get();
+        path_nodes.push_back(current);
+    }
+    
+    // Mark the node as non-existent
+    current->exists = false;
+    current->stat_info = StatInfo();
+    
+    // Optionally, clean up empty nodes (prune the trie)
+    // Work backwards from the target to root
+    for (int i = components.size() - 1; i >= 0; --i) {
+        TrieNode* node = path_nodes[i + 1];
+        
+        // If node has no children and doesn't exist, remove it from parent
+        if (node->children.empty() && !node->exists) {
+            TrieNode* parent = path_nodes[i];
+            parent->children.erase(components[i]);
+        } else {
+            // Stop pruning if node is still needed
+            break;
+        }
+    }
+}
+

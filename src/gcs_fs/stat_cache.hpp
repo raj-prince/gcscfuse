@@ -62,6 +62,9 @@ public:
     // Check if a path is a directory
     bool isDirectory(const std::string& path) const;
     
+    // Remove a path from the cache
+    void remove(const std::string& path);
+    
     // Clear all cached data
     void clear();
     

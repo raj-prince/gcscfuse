@@ -24,7 +24,7 @@ public:
     explicit GCSFS(const std::string& bucket_name, const GCSFSConfig& config);
     ~GCSFS() override = default;
 
-    // FUSE operations
+    // FUSE operations - read
     static int getattr(const char *path, struct stat *stbuf, struct fuse_file_info *);
     static int readdir(const char *path, void *buf, fuse_fill_dir_t filler,
                        off_t offset, struct fuse_file_info *fi,
@@ -32,6 +32,15 @@ public:
     static int open(const char *path, struct fuse_file_info *fi);
     static int read(const char *path, char *buf, size_t size, off_t offset,
                     struct fuse_file_info *);
+    
+    // FUSE operations - write
+    static int create(const char *path, mode_t mode, struct fuse_file_info *fi);
+    static int write(const char *path, const char *buf, size_t size, off_t offset,
+                     struct fuse_file_info *);
+    static int truncate(const char *path, off_t size, struct fuse_file_info *fi);
+    static int flush(const char *path, struct fuse_file_info *fi);
+    static int release(const char *path, struct fuse_file_info *fi);
+    static int unlink(const char *path);
 
     // Accessors
     const std::string& bucketName() const { return bucket_name_; }
@@ -50,10 +59,19 @@ private:
     mutable std::map<std::string, std::string> file_cache_;
     mutable std::vector<std::string> file_list_;
     mutable bool files_loaded_ = false;
+    
+    // Write buffers for modified files (path -> content)
+    mutable std::map<std::string, std::string> write_buffers_;
+    mutable std::map<std::string, bool> dirty_files_;  // Track which files need sync
 
     // Helper functions
     void loadFileList() const;
     const std::string& getFileContent(const std::string& path) const;
     bool isValidPath(const std::string& path) const;
     bool isDirectory(const std::string& path) const;
+    
+    // Write helpers
+    int uploadToGCS(const std::string& path) const;
+    void markDirty(const std::string& path) const;
+    bool isDirty(const std::string& path) const;
 };
