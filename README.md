@@ -5,7 +5,7 @@ C++ implementation of fuse offering for Google Cloud Storage.
 ## Projects
 
 - [hello_fs](src/hello_fs/) - Minimal FUSE example with a single "Hello World" file
-- [gcs_fs](src/gcs_fs/) - GCS FUSE implementation with read-only access to buckets
+- [gcs_fs](src/gcs_fs/) - Full-featured GCS FUSE implementation with read-write access, caching, and directory support
 
 ## Build hello_fs
 

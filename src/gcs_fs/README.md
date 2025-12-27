@@ -1,12 +1,15 @@
 # GCSFS
 
-A FUSE filesystem that provides read-only access to Google Cloud Storage buckets.
+A FUSE filesystem that provides full read-write access to Google Cloud Storage buckets.
 
 ## Features
 
-- Read files directly from GCS buckets
-- In-memory caching of file contents
-- Lists all objects in the bucket as files in root directory
+- **Full read-write support**: Create, modify, and delete files
+- **Directory support**: Navigate nested directory structures
+- **Trie-based stat cache**: Fast metadata lookups with O(path_depth) complexity
+- **Write buffering**: In-memory buffering with lazy GCS uploads on flush/close
+- **Configurable caching**: Optional stat cache and file content cache
+- **Command-line flags**: Debug mode, verbose logging, cache control
 - **Uses vcpkg for dependency management**
 
 ## Prerequisites
@@ -58,24 +61,91 @@ make -j$(nproc)
 
 ```bash
 mkdir -p ~/gcs
-./build/gcs_fs <bucket-name> ~/gcs
+./build/gcs_fs <bucket-name> ~/gcs [options]
 ```
 
-Example:
+### Command-line Options
+
 ```bash
-./build/gcs_fs my-test-bucket ~/gcs -f
+# Basic usage
+./build/gcs_fs my-bucket ~/gcs -f
+
+# With debug output
+./build/gcs_fs my-bucket ~/gcs --debug -f
+
+# Disable stat cache
+./build/gcs_fs my-bucket ~/gcs --disable-stat-cache -f
+
+# Disable file content cache
+./build/gcs_fs my-bucket ~/gcs --disable-file-cache -f
+
+# Show help
+./build/gcs_fs --help
 ```
 
-Test:
+### Available Flags
+
+- `--enable-stat-cache` / `--disable-stat-cache` - Enable/disable metadata caching (default: enabled)
+- `--enable-file-cache` / `--disable-file-cache` - Enable/disable file content caching (default: enabled)
+- `--debug` - Show debug messages including cache hits and GCS operations
+- `--verbose` - Show verbose logging
+- `--help` - Display usage information
+- `-f` - Run in foreground (FUSE option)
+- `-d` - FUSE debug mode
+- `-o <option>` - Pass options to FUSE
+
+### Testing Write Operations
+
 ```bash
-ls ~/gcs
+# Create a file
+echo "Hello GCS!" > ~/gcs/test.txt
+
+# Append to file
+echo "More data" >> ~/gcs/test.txt
+
+# Read file
 cat ~/gcs/test.txt
+
+# Modify file
+truncate -s 5 ~/gcs/test.txt
+
+# Delete file
+rm ~/gcs/test.txt
+
+# Navigate directories
+ls ~/gcs/some/nested/path/
+cd ~/gcs/some/nested/path/
 ```
 
 Unmount:
 ```bash
+fusermount -u ~/gcs
+# or
 umount ~/gcs
 ```
+
+## Architecture
+
+### Write Operations
+
+Files are written to an in-memory buffer and marked as "dirty". On `flush()` or `release()` (file close), the buffer is uploaded to GCS. This design:
+- Minimizes GCS API calls (no write per byte)
+- Provides fast write performance
+- Ensures data consistency
+
+### Stat Cache
+
+A trie-based cache stores file/directory metadata:
+- O(path_depth) lookup complexity
+- Automatically updated on create/delete/upload operations
+- Can be disabled with `--disable-stat-cache`
+
+### File Content Cache
+
+Optional in-memory cache for file contents:
+- Caches files on first read
+- Reduces repeated GCS reads
+- Can be disabled with `--disable-file-cache`
 
 ## Quick Start on New VM
 
@@ -104,13 +174,38 @@ mkdir -p ~/gcs
 
 ## Implementation
 
-- [main.cpp](main.cpp) - Entry point with bucket name argument
-- [gcs_fs.hpp](gcs_fs.hpp) - GCSFS class definition
-- [gcs_fs.cpp](gcs_fs.cpp) - GCS operations and FUSE implementation
-- [CMakeLists.txt](CMakeLists.txt) - Build configuration with automatic dependency fetching
+- [main.cpp](main.cpp) - Entry point with command-line flag parsing
+- [gcs_fs.hpp](gcs_fs.hpp) / [gcs_fs.cpp](gcs_fs.cpp) - GCSFS class with read/write operations
+- [config.hpp](config.hpp) / [config.cpp](config.cpp) - Configuration structure and flag parsing
+- [stat_cache.hpp](stat_cache.hpp) / [stat_cache.cpp](stat_cache.cpp) - Trie-based metadata cache
+- [CMakeLists.txt](CMakeLists.txt) - Build configuration with vcpkg integration
+
+## FUSE Operations Implemented
+
+### Read Operations
+- `getattr()` - Get file/directory attributes
+- `readdir()` - List directory contents
+- `open()` - Open file for reading/writing
+- `read()` - Read file contents
+
+### Write Operations
+- `create()` - Create new files
+- `write()` - Write data to files
+- `truncate()` - Resize files
+- `flush()` - Sync dirty data to GCS
+- `release()` - Close file and ensure sync
+- `unlink()` - Delete files
+
+## Performance Notes
+
+- **Stat cache**: Reduces GCS metadata API calls significantly
+- **File cache**: Eliminates redundant content downloads
+- **Write buffering**: Minimizes GCS uploads (batches writes)
+- **Directory support**: Efficient prefix-based navigation
 
 ## Limitations
 
-- Read-only filesystem
-- All files appear in root directory (no subdirectories yet)
-- Files are fully cached in memory on first read
+- Files are fully cached in memory during write operations
+- Large file writes limited by available memory
+- No directory creation/deletion operations yet
+- No symlink support
