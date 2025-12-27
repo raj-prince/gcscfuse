@@ -5,12 +5,8 @@
 
 set -e
 
-if [ $# -lt 1 ]; then
-    echo "Usage: $0 <bucket_name>"
-    exit 1
-fi
-
-BUCKET=$1
+# Accept bucket from environment variable, command-line argument, or default
+BUCKET=${BUCKET:-${1:-princer-working-dirs}}
 RESULTS_DIR="./fio_comparison_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$RESULTS_DIR"
 

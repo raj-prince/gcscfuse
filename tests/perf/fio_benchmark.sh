@@ -6,15 +6,10 @@
 
 set -e
 
-if [ $# -lt 1 ]; then
-    echo "Usage: $0 <bucket_name> [mount_point]"
-    echo "Example: $0 my-bucket /tmp/gcs_bench"
-    exit 1
-fi
-
-BUCKET=$1
+# Accept bucket from environment variable, command-line argument, or default
+BUCKET=${BUCKET:-${1:-princer-working-dirs}}
 MOUNT_POINT=${2:-"/tmp/gcs_fio_bench_$$"}
-BINARY="../build/gcs_fs"
+BINARY="../build/gcscfuse"
 RESULTS_DIR="./fio_results_$(date +%Y%m%d_%H%M%S)"
 
 # Colors
@@ -69,7 +64,7 @@ NUMJOBS="4"
 echo -e "\n${BLUE}Test Configuration:${NC}"
 echo "  File size: $TEST_SIZE"
 echo "  Runtime: ${RUNTIME}s per test"
-echo "  Jobs: $NUMJOBS"
+echo "  Jobs: 1 (Tests 1-4), 16 (Test 5 - Multi-threaded)"
 echo "  Results: $RESULTS_DIR"
 
 # ============================================================================
@@ -84,7 +79,7 @@ fio --name=seq-write \
     --rw=write \
     --bs=1M \
     --size=$TEST_SIZE \
-    --numjobs=$NUMJOBS \
+    --numjobs=1 \
     --group_reporting \
     --time_based \
     --runtime=$RUNTIME \
@@ -103,7 +98,7 @@ fio --name=seq-read \
     --rw=read \
     --bs=1M \
     --size=$TEST_SIZE \
-    --numjobs=$NUMJOBS \
+    --numjobs=1 \
     --group_reporting \
     --time_based \
     --runtime=$RUNTIME \
@@ -111,61 +106,61 @@ fio --name=seq-read \
     --output-format=json
 
 # ============================================================================
-# Test 3: Random Write (4K blocks)
+# ============================================================================
+# Test 3: Random Write (1MB blocks)
 # ============================================================================
 echo -e "\n${BLUE}=========================================${NC}"
-echo -e "${BLUE}Test 3: Random Write (4K blocks)${NC}"
+echo -e "${BLUE}Test 3: Random Write (1MB blocks)${NC}"
 echo -e "${BLUE}=========================================${NC}"
 
 fio --name=rand-write \
     --directory="$MOUNT_POINT" \
     --rw=randwrite \
-    --bs=4K \
+    --bs=1M \
     --size=$TEST_SIZE \
-    --numjobs=$NUMJOBS \
+    --numjobs=1 \
     --group_reporting \
     --time_based \
     --runtime=$RUNTIME \
-    --output="$RESULTS_DIR/03_rand_write_4k.json" \
+    --output="$RESULTS_DIR/03_rand_write_1mb.json" \
     --output-format=json
 
 # ============================================================================
-# Test 4: Random Read (4K blocks)
+# Test 4: Random Read (1MB blocks)
 # ============================================================================
 echo -e "\n${BLUE}=========================================${NC}"
-echo -e "${BLUE}Test 4: Random Read (4K blocks)${NC}"
+echo -e "${BLUE}Test 4: Random Read (1MB blocks)${NC}"
 echo -e "${BLUE}=========================================${NC}"
 
 fio --name=rand-read \
     --directory="$MOUNT_POINT" \
     --rw=randread \
-    --bs=4K \
+    --bs=1M \
     --size=$TEST_SIZE \
-    --numjobs=$NUMJOBS \
+    --numjobs=1 \
     --group_reporting \
     --time_based \
     --runtime=$RUNTIME \
-    --output="$RESULTS_DIR/04_rand_read_4k.json" \
+    --output="$RESULTS_DIR/04_rand_read_1mb.json" \
     --output-format=json
 
 # ============================================================================
-# Test 5: Mixed Random Read/Write (70/30)
+# Test 5: Multi-threaded Read (16 threads, 1MB blocks)
 # ============================================================================
 echo -e "\n${BLUE}=========================================${NC}"
-echo -e "${BLUE}Test 5: Mixed Random Read/Write (70/30)${NC}"
+echo -e "${BLUE}Test 5: Multi-threaded Read (16 threads)${NC}"
 echo -e "${BLUE}=========================================${NC}"
 
-fio --name=mixed-rw \
+fio --name=multithread-read \
     --directory="$MOUNT_POINT" \
-    --rw=randrw \
-    --rwmixread=70 \
-    --bs=4K \
+    --rw=read \
+    --bs=1M \
     --size=$TEST_SIZE \
-    --numjobs=$NUMJOBS \
+    --numjobs=16 \
     --group_reporting \
     --time_based \
     --runtime=$RUNTIME \
-    --output="$RESULTS_DIR/05_mixed_rw.json" \
+    --output="$RESULTS_DIR/05_multithread_read.json" \
     --output-format=json
 
 # ============================================================================
@@ -209,7 +204,7 @@ Date: $(date)
 Bucket: $BUCKET
 Test Size: $TEST_SIZE
 Runtime: ${RUNTIME}s per test
-Jobs: $NUMJOBS
+Jobs: 1 (Tests 1-4), 16 (Test 5 - Multi-threaded)
 
 Test Results:
 -------------
@@ -225,10 +220,20 @@ for result_file in "$RESULTS_DIR"/*.json; do
             echo "Metadata (100 stats): ${stat_time}s" >> "$RESULTS_DIR/summary.txt"
         else
             # Extract bandwidth and IOPS from FIO JSON output
-            bw_bytes=$(jq -r '.jobs[0].write.bw_bytes // .jobs[0].read.bw_bytes // 0' "$result_file" 2>/dev/null || echo "0")
-            iops=$(jq -r '.jobs[0].write.iops // .jobs[0].read.iops // 0' "$result_file" 2>/dev/null || echo "0")
+            # Try write first, then read (use proper null check)
+            write_bw=$(jq -r '.jobs[0].write.bw_bytes // 0' "$result_file" 2>/dev/null || echo "0")
+            read_bw=$(jq -r '.jobs[0].read.bw_bytes // 0' "$result_file" 2>/dev/null || echo "0")
             
-            if [ "$bw_bytes" != "0" ]; then
+            # Use write stats if > 0, otherwise use read stats
+            if [ "$write_bw" != "0" ] && [ "$write_bw" != "null" ]; then
+                bw_bytes=$write_bw
+                iops=$(jq -r '.jobs[0].write.iops // 0' "$result_file" 2>/dev/null || echo "0")
+            else
+                bw_bytes=$read_bw
+                iops=$(jq -r '.jobs[0].read.iops // 0' "$result_file" 2>/dev/null || echo "0")
+            fi
+            
+            if [ "$bw_bytes" != "0" ] && [ "$bw_bytes" != "null" ]; then
                 bw_mb=$(echo "scale=2; $bw_bytes / 1024 / 1024" | bc)
                 printf "%-30s BW: %8.2f MB/s, IOPS: %8.0f\n" "$test_name:" "$bw_mb" "$iops" >> "$RESULTS_DIR/summary.txt"
             fi
