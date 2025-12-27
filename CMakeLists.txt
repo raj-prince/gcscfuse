@@ -122,13 +122,23 @@ else()
     message(WARNING "Install with: sudo apt-get install -y libgtest-dev")
 endif()
 
-# FIO Performance Tests
-add_custom_target(fio
+# E2E Tests
+add_custom_target(e2e
+    COMMAND ${CMAKE_COMMAND} -E env BUCKET=${BUCKET} bash ${CMAKE_SOURCE_DIR}/tests/e2e/test_stat_cache_ttl.sh
+    DEPENDS gcscfuse
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMENT "Running E2E tests..."
+)
+
+# Performance Tests
+add_custom_target(perf
     COMMAND ${CMAKE_COMMAND} -E env BUCKET=${BUCKET} bash ${CMAKE_SOURCE_DIR}/tests/perf/fio_benchmark.sh
     DEPENDS gcscfuse
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMENT "Running FIO performance tests..."
+    COMMENT "Running performance tests..."
 )
 
-message(STATUS "Use 'make fio' to run performance tests (default: princer-working-dirs)")
-message(STATUS "Use 'make fio BUCKET=<name>' to test with a different bucket")
+message(STATUS "Use 'make e2e' to run E2E tests (default: princer-working-dirs)")
+message(STATUS "Use 'make e2e BUCKET=<name>' to test with a different bucket")
+message(STATUS "Use 'make perf' to run performance tests (default: princer-working-dirs)")
+message(STATUS "Use 'make perf BUCKET=<name>' to test with a different bucket")

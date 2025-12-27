@@ -1,19 +1,20 @@
 #!/bin/bash
 
 # Test script to verify stat cache TTL and measure performance
-# Usage: ./test_stat_cache_ttl.sh <bucket_name>
+# Usage: ./test_stat_cache_ttl.sh [bucket_name]
+# Or: BUCKET=bucket_name ./test_stat_cache_ttl.sh
 
 set -e
 
-if [ $# -lt 1 ]; then
-    echo "Usage: $0 <bucket_name>"
-    exit 1
+# Use command line argument if provided, otherwise use environment variable or default
+if [ $# -ge 1 ]; then
+    BUCKET=$1
+else
+    BUCKET="${BUCKET:-princer-working-dirs}"
 fi
-
-BUCKET=$1
 MOUNT_POINT="/tmp/gcs_test_mount_$$"
 TEST_FILE="test_cache_file.txt"
-BINARY="../build/gcs_fs"
+BINARY="./gcscfuse"
 
 # Colors for output
 GREEN='\033[0;32m'
