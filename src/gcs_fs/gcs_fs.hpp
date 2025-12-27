@@ -8,6 +8,7 @@
 #include "fuse_cpp_wrapper.hpp"
 #include "google/cloud/storage/client.h"
 #include "stat_cache.hpp"
+#include "config.hpp"
 
 namespace gcs = ::google::cloud::storage;
 
@@ -20,7 +21,7 @@ namespace gcs = ::google::cloud::storage;
 class GCSFS : public Fusepp::Fuse<GCSFS>
 {
 public:
-    explicit GCSFS(const std::string& bucket_name);
+    explicit GCSFS(const std::string& bucket_name, const GCSFSConfig& config);
     ~GCSFS() override = default;
 
     // FUSE operations
@@ -39,6 +40,7 @@ public:
 private:
     std::string bucket_name_;
     std::string root_path_ = "/";
+    GCSFSConfig config_;
     mutable gcs::Client client_;  // mutable because GCS client methods are non-const
     
     // Stat cache for metadata

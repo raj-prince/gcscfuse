@@ -53,6 +53,8 @@ add_executable(gcs_fs
         gcs_fs.hpp
         stat_cache.cpp
         stat_cache.hpp
+        config.cpp
+        config.hpp
 )
 
 target_link_libraries(gcs_fs 

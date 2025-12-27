@@ -7,11 +7,16 @@
 #include <set>
 #include <chrono>
 
-GCSFS::GCSFS(const std::string& bucket_name)
+GCSFS::GCSFS(const std::string& bucket_name, const GCSFSConfig& config)
     : bucket_name_(bucket_name),
+      config_(config),
       client_(gcs::Client())
 {
     std::cout << "Initializing GCSFS for bucket: " << bucket_name_ << std::endl;
+    if (config_.debug_mode) {
+        std::cout << "[DEBUG] Stat cache: " << (config_.enable_stat_cache ? "enabled" : "disabled") << std::endl;
+        std::cout << "[DEBUG] File content cache: " << (config_.enable_file_content_cache ? "enabled" : "disabled") << std::endl;
+    }
 }
 
 void GCSFS::loadFileList() const
@@ -32,14 +37,21 @@ void GCSFS::loadFileList() const
             if (!name.empty() && name.back() != '/') {
                 file_list_.push_back(name);
                 
-                // Add to stat cache with metadata
-                off_t size = static_cast<off_t>(object_metadata->size());
-                time_t mtime = std::chrono::system_clock::to_time_t(
-                    object_metadata->time_created()
-                );
-                stat_cache_.insertFile("/" + name, size, mtime);
+                // Add to stat cache with metadata (if enabled)
+                if (config_.enable_stat_cache) {
+                    off_t size = static_cast<off_t>(object_metadata->size());
+                    time_t mtime = std::chrono::system_clock::to_time_t(
+                        object_metadata->time_created()
+                    );
+                    stat_cache_.insertFile("/" + name, size, mtime);
+                }
                 
-                std::cout << "Found file: " << name << " (size: " << size << " bytes)" << std::endl;
+                if (config_.verbose_logging) {
+                    std::cout << "Found file: " << name << " (size: " 
+                              << object_metadata->size() << " bytes)" << std::endl;
+                } else if (config_.debug_mode) {
+                    std::cout << "Found file: " << name << std::endl;
+                }
             }
         }
         files_loaded_ = true;
@@ -56,14 +68,21 @@ const std::string& GCSFS::getFileContent(const std::string& path) const
         object_name = object_name.substr(1);
     }
     
-    // Check cache first
-    auto it = file_cache_.find(object_name);
-    if (it != file_cache_.end()) {
-        return it->second;
+    // Check cache first (if enabled)
+    if (config_.enable_file_content_cache) {
+        auto it = file_cache_.find(object_name);
+        if (it != file_cache_.end()) {
+            if (config_.debug_mode) {
+                std::cout << "[DEBUG] Cache hit for: " << object_name << std::endl;
+            }
+            return it->second;
+        }
     }
     
     // Read from GCS
-    std::cout << "Reading from GCS: " << object_name << std::endl;
+    if (config_.debug_mode) {
+        std::cout << "[DEBUG] Reading from GCS: " << object_name << std::endl;
+    }
     auto reader = client_.ReadObject(bucket_name_, object_name);
     
     if (!reader) {
@@ -73,9 +92,20 @@ const std::string& GCSFS::getFileContent(const std::string& path) const
     }
     
     std::string content{std::istreambuf_iterator<char>{reader}, {}};
-    file_cache_[object_name] = content;
     
-    std::cout << "Cached " << content.size() << " bytes for " << object_name << std::endl;
+    // Cache the content (if enabled)
+    if (config_.enable_file_content_cache) {
+        file_cache_[object_name] = content;
+        if (config_.verbose_logging) {
+            std::cout << "Cached " << content.size() << " bytes for " << object_name << std::endl;
+        }
+        return file_cache_[object_name];
+    } else {
+        // Store temporarily for this request
+        static thread_local std::string temp_content;
+        temp_content = std::move(content);
+        return temp_content;
+    }
     return file_cache_[object_name];
 }
 
@@ -145,15 +175,21 @@ int GCSFS::getattr(const char *path, struct stat *stbuf, struct fuse_file_info *
     // Ensure file list is loaded to populate cache
     ptr->loadFileList();
     
-    // Try to get stat from cache first
-    auto cached_stat = ptr->stat_cache_.getStat(path);
-    if (cached_stat.has_value()) {
-        const auto& info = cached_stat.value();
-        stbuf->st_mode = info.mode;
-        stbuf->st_nlink = info.is_directory ? 2 : 1;
-        stbuf->st_size = info.size;
-        stbuf->st_mtime = info.mtime;
-        return 0;
+    // Try to get stat from cache first (if enabled)
+    if (ptr->config_.enable_stat_cache) {
+        auto cached_stat = ptr->stat_cache_.getStat(path);
+        if (cached_stat.has_value()) {
+            const auto& info = cached_stat.value();
+            stbuf->st_mode = info.mode;
+            stbuf->st_nlink = info.is_directory ? 2 : 1;
+            stbuf->st_size = info.size;
+            stbuf->st_mtime = info.mtime;
+            
+            if (ptr->config_.debug_mode) {
+                std::cout << "[DEBUG] Stat cache hit for: " << path << std::endl;
+            }
+            return 0;
+        }
     }
     
     // Fallback to old behavior if not in cache
@@ -231,18 +267,20 @@ int GCSFS::readdir(const char *path, void *buf, fuse_fill_dir_t filler,
             if (!entry_name.empty() && entries.find(entry_name) == entries.end()) {
                 entries.insert(entry_name);
                 
-                // Populate stat cache for this entry
-                std::string full_path = path;
-                if (full_path != "/" && full_path.back() != '/') {
-                    full_path += "/";
+                // Populate stat cache for this entry (if enabled)
+                if (ptr->config_.enable_stat_cache) {
+                    std::string full_path = path;
+                    if (full_path != "/" && full_path.back() != '/') {
+                        full_path += "/";
+                    }
+                    full_path += entry_name;
+                    
+                    // Ensure the entry is in the cache
+                    if (is_subdir) {
+                        ptr->stat_cache_.insertDirectory(full_path);
+                    }
+                    // Files are already in cache from loadFileList()
                 }
-                full_path += entry_name;
-                
-                // Ensure the entry is in the cache
-                if (is_subdir) {
-                    ptr->stat_cache_.insertDirectory(full_path);
-                }
-                // Files are already in cache from loadFileList()
                 
                 filler(buf, entry_name.c_str(), nullptr, 0, FUSE_FILL_DIR_PLUS);
             }

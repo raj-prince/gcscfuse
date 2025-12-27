@@ -1,35 +1,37 @@
 // GCS filesystem main entry point
 
 #include "gcs_fs.hpp"
+#include "config.hpp"
 #include <iostream>
 
 int main(int argc, char *argv[])
 {
-    if (argc < 3) {
-        std::cerr << "Usage: " << argv[0] << " <bucket_name> <mount_point> [fuse_options...]\n";
-        std::cerr << "Example: " << argv[0] << " my-bucket ~/gcs -f\n";
-        return 1;
-    }
-
-    // First argument is the bucket name
-    std::string bucket_name = argv[1];
-    
-    // Shift arguments for FUSE (skip bucket_name)
-    char **fuse_argv = new char*[argc];
-    fuse_argv[0] = argv[0];
-    for (int i = 2; i < argc; i++) {
-        fuse_argv[i-1] = argv[i];
-    }
-    int fuse_argc = argc - 1;
-
     try {
-        GCSFS fs(bucket_name);
+        // Parse configuration from command-line arguments
+        GCSFSConfig config = GCSFSConfig::parseFromArgs(argc, argv);
+        
+        // Convert config back to FUSE arguments
+        int fuse_argc;
+        char** fuse_argv;
+        config.toFuseArgs(fuse_argc, fuse_argv);
+        
+        // Create and run filesystem
+        GCSFS fs(config.bucket_name, config);
         const auto status = fs.run(fuse_argc, fuse_argv);
+        
+        // Clean up allocated arguments
+        for (int i = 0; i < fuse_argc; i++) {
+            delete[] fuse_argv[i];
+        }
         delete[] fuse_argv;
+        
         return status;
-    } catch (const std::exception& e) {
+    } catch (const std::runtime_error& e) {
         std::cerr << "Error: " << e.what() << std::endl;
-        delete[] fuse_argv;
+        std::cerr << "\nUse --help for usage information.\n";
+        return 1;
+    } catch (const std::exception& e) {
+        std::cerr << "Unexpected error: " << e.what() << std::endl;
         return 1;
     }
 }
