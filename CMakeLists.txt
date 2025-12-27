@@ -44,12 +44,13 @@ pkg_check_modules(FUSE REQUIRED fuse3)
 # Find google-cloud-cpp (vcpkg will provide this)
 find_package(google_cloud_cpp_storage REQUIRED)
 
-# Find Google Test
+# Find Google Test and GMock
 find_package(GTest QUIET)
 if(NOT GTest_FOUND)
     # Try pkg-config as fallback
     pkg_check_modules(GTEST gtest)
     pkg_check_modules(GTEST_MAIN gtest_main)
+    pkg_check_modules(GMOCK gmock)
 endif()
 
 # Include directories
@@ -69,6 +70,10 @@ add_executable(gcscfuse
         src/config.cpp
         src/config.hpp
         src/fuse_cpp_wrapper.hpp
+        src/gcs/gcs_client.cpp
+        src/gcs/gcs_client.hpp
+        src/gcs/gcs_sdk_interface.cpp
+        src/gcs/gcs_sdk_interface.hpp
 )
 
 target_link_libraries(gcscfuse 
@@ -87,10 +92,25 @@ if(GTest_FOUND OR GTEST_FOUND)
         src/stat_cache.hpp
     )
     
+    add_executable(run_gcs_client_tests
+        src/gcs/gcs_client_test.cpp
+        src/gcs/gcs_client.cpp
+        src/gcs/gcs_client.hpp
+        src/gcs/gcs_sdk_interface.cpp
+        src/gcs/gcs_sdk_interface.hpp
+    )
+    
     if(GTest_FOUND)
         target_link_libraries(run_tests 
             GTest::gtest 
             GTest::gtest_main
+            pthread
+        )
+        target_link_libraries(run_gcs_client_tests
+            GTest::gtest
+            GTest::gtest_main
+            GTest::gmock
+            google-cloud-cpp::storage
             pthread
         )
     else()
@@ -100,10 +120,19 @@ if(GTest_FOUND OR GTEST_FOUND)
             ${GTEST_MAIN_LIBRARIES}
             pthread
         )
+        target_include_directories(run_gcs_client_tests PRIVATE ${GTEST_INCLUDE_DIRS} ${GMOCK_INCLUDE_DIRS})
+        target_link_libraries(run_gcs_client_tests
+            ${GTEST_LIBRARIES}
+            ${GTEST_MAIN_LIBRARIES}
+            ${GMOCK_LIBRARIES}
+            google-cloud-cpp::storage
+            pthread
+        )
     endif()
     
-    # Add test to CTest
+    # Add tests to CTest
     add_test(NAME stat_cache_tests COMMAND run_tests)
+    add_test(NAME gcs_client_tests COMMAND run_gcs_client_tests)
     
     # Make sure tests are built before running 'make test'
     add_custom_target(check 

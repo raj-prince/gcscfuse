@@ -12,7 +12,7 @@
 GCSFS::GCSFS(const std::string& bucket_name, const GCSFSConfig& config)
     : bucket_name_(bucket_name),
       config_(config),
-      client_(gcs::Client())
+      gcs_client_()
 {
     // Set up FUSE logging if debug or verbose mode enabled
     if (config_.debug_mode || config_.verbose_logging) {
@@ -74,15 +74,14 @@ const std::string& GCSFS::getFileContent(const std::string& path) const
     if (config_.debug_mode) {
         std::cout << "[DEBUG] Reading from GCS: " << object_name << std::endl;
     }
-    auto reader = client_.ReadObject(bucket_name_, object_name);
     
-    if (!reader) {
-        std::cerr << "Error reading object: " << reader.status() << std::endl;
+    std::string content = gcs_client_.readObject(bucket_name_, object_name);
+    
+    if (content.empty()) {
+        std::cerr << "Error reading object: " << object_name << std::endl;
         static const std::string empty;
         return empty;
     }
-    
-    std::string content{std::istreambuf_iterator<char>{reader}, {}};
     
     // Cache the content (if enabled)
     if (config_.enable_file_content_cache) {
@@ -118,34 +117,17 @@ bool GCSFS::isValidPath(const std::string& path) const
     }
     
     // Check if it's a file by trying to get its metadata
-    try {
-        auto metadata = client_.GetObjectMetadata(bucket_name_, object_name);
-        if (metadata.ok()) {
-            return true;
-        }
-    } catch (...) {
-        // Not a file, continue to check if directory
+    if (gcs_client_.objectExists(bucket_name_, object_name)) {
+        return true;
     }
     
     // Check if it's a directory by listing with prefix
-    try {
-        std::string dir_prefix = object_name;
-        if (!dir_prefix.empty() && dir_prefix.back() != '/') {
-            dir_prefix += '/';
-        }
-        
-        auto objects = client_.ListObjects(bucket_name_, gcs::Prefix(dir_prefix), gcs::MaxResults(1));
-        for (auto&& obj : objects) {
-            if (obj.ok()) {
-                return true;  // Found at least one object with this prefix
-            }
-            break;
-        }
-    } catch (...) {
-        // Error checking directory
+    std::string dir_prefix = object_name;
+    if (!dir_prefix.empty() && dir_prefix.back() != '/') {
+        dir_prefix += '/';
     }
     
-    return false;
+    return gcs_client_.directoryExists(bucket_name_, dir_prefix);
 }
 
 bool GCSFS::isDirectory(const std::string& path) const
@@ -166,24 +148,12 @@ bool GCSFS::isDirectory(const std::string& path) const
     }
     
     // Check if any objects exist with this prefix
-    try {
-        std::string dir_prefix = object_name;
-        if (!dir_prefix.empty() && dir_prefix.back() != '/') {
-            dir_prefix += '/';
-        }
-        
-        auto objects = client_.ListObjects(bucket_name_, gcs::Prefix(dir_prefix), gcs::MaxResults(1));
-        for (auto&& obj : objects) {
-            if (obj.ok()) {
-                return true;  // Found at least one object with this prefix
-            }
-            break;
-        }
-    } catch (...) {
-        // Error checking directory
+    std::string dir_prefix = object_name;
+    if (!dir_prefix.empty() && dir_prefix.back() != '/') {
+        dir_prefix += '/';
     }
     
-    return false;
+    return gcs_client_.directoryExists(bucket_name_, dir_prefix);
 }
 
 int GCSFS::getattr(const char *path, struct stat *stbuf, struct fuse_file_info *)
@@ -279,16 +249,10 @@ int GCSFS::readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     
     try {
         // List objects with this directory prefix and delimiter to get immediate children
-        gcs::Prefix prefix(dir_path);
-        gcs::Delimiter delimiter("/");
+        auto objects = ptr->gcs_client_.listObjects(ptr->bucket_name_, dir_path, "/");
         
-        for (auto&& object_metadata : ptr->client_.ListObjects(ptr->bucket_name_, prefix, delimiter)) {
-            if (!object_metadata) {
-                std::cerr << "Error listing objects: " << object_metadata.status() << std::endl;
-                break;
-            }
-            
-            std::string name = object_metadata->name();
+        for (const auto& obj_meta : objects) {
+            std::string name = obj_meta.name;
             
             // Remove directory prefix
             std::string relative = dir_path.empty() ? name : name.substr(dir_path.length());
@@ -327,10 +291,8 @@ int GCSFS::readdir(const char *path, void *buf, fuse_fill_dir_t filler,
                     if (is_subdir) {
                         ptr->stat_cache_.insertDirectory(full_path);
                     } else {
-                        off_t size = static_cast<off_t>(object_metadata->size());
-                        time_t mtime = std::chrono::system_clock::to_time_t(
-                            object_metadata->time_created()
-                        );
+                        off_t size = static_cast<off_t>(obj_meta.size);
+                        time_t mtime = std::chrono::system_clock::to_time_t(obj_meta.updated);
                         ptr->stat_cache_.insertFile(full_path, size, mtime);
                     }
                 }
@@ -593,9 +555,9 @@ int GCSFS::unlink(const char *path)
     
     // Delete from GCS
     try {
-        auto status = ptr->client_.DeleteObject(ptr->bucket_name_, object_name);
-        if (!status.ok()) {
-            std::cerr << "Error deleting object: " << status.message() << std::endl;
+        bool success = ptr->gcs_client_.deleteObject(ptr->bucket_name_, object_name);
+        if (!success) {
+            std::cerr << "Error deleting object: " << object_name << std::endl;
             return -EIO;
         }
         
@@ -638,12 +600,10 @@ int GCSFS::uploadToGCS(const std::string& path) const
     }
     
     try {
-        auto writer = client_.WriteObject(bucket_name_, object_name);
-        writer.write(content.c_str(), content.size());
-        writer.Close();
+        bool success = gcs_client_.writeObject(bucket_name_, object_name, content);
         
-        if (!writer.metadata()) {
-            std::cerr << "Error uploading object: " << writer.metadata().status() << std::endl;
+        if (!success) {
+            std::cerr << "Error uploading object: " << object_name << std::endl;
             return -EIO;
         }
         

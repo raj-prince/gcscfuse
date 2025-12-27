@@ -6,11 +6,9 @@
 #include <map>
 #include <vector>
 #include "fuse_cpp_wrapper.hpp"
-#include "google/cloud/storage/client.h"
+#include "gcs/gcs_client.hpp"
 #include "stat_cache.hpp"
 #include "config.hpp"
-
-namespace gcs = ::google::cloud::storage;
 
 /**
  * GCSFS - A FUSE filesystem that reads files from Google Cloud Storage
@@ -50,7 +48,7 @@ private:
     std::string bucket_name_;
     std::string root_path_ = "/";
     GCSFSConfig config_;
-    mutable gcs::Client client_;  // mutable because GCS client methods are non-const
+    mutable gcscfuse::GCSClient gcs_client_;
     
     // Stat cache for metadata
     mutable StatCache stat_cache_;
