@@ -82,45 +82,58 @@ Fast component tests using Google Test:
 cd build && make test
 ```
 
-### Integration Tests
+### E2E Tests
 Cache TTL verification with real GCS:
 ```bash
-cd src/tests
-python3 test_cache_ttl.py
+cd build && make e2e
 ```
 
-### Performance Tests (FIO)
+### Performance Tests
 I/O benchmarking with FIO:
 ```bash
-cd src/tests
-./fio_benchmark.sh <bucket-name>
-./fio_compare.sh <bucket-name>  # Compare cache enabled vs disabled
+cd build && make perf
 ```
 
-See [src/tests/FIO_TESTING.md](src/tests/FIO_TESTING.md) for detailed performance testing guide.
+For detailed testing information, see:
+- [doc/UNIT_TEST_SETUP.md](doc/UNIT_TEST_SETUP.md) - Unit testing guide
+- [doc/TESTING_CACHE_TTL.md](doc/TESTING_CACHE_TTL.md) - E2E testing guide
+- [doc/FIO_TESTING.md](doc/FIO_TESTING.md) - Performance testing guide
+- [doc/TESTING.md](doc/TESTING.md) - General testing overview
 
 ## Project Structure
 
 ```
 gcscfuse/
-├── build/              # Build output directory (parallel to src)
+├── build/              # Build output directory
 ├── src/                # Source code
 │   ├── main.cpp
 │   ├── gcs_fs.cpp/hpp
 │   ├── stat_cache.cpp/hpp
 │   ├── config.cpp/hpp
 │   ├── fuse_cpp_wrapper.hpp
-│   ├── unit_tests/     # Unit tests
-│   └── tests/          # Integration and performance tests
-├── CMakeLists.txt      # Single unified build configuration
+│   └── stat_cache_test.cpp
+├── tests/              # Test suites
+│   ├── e2e/            # End-to-end tests
+│   └── perf/           # Performance tests
+├── doc/                # Documentation
+│   ├── README_gcs_fs.md
+│   ├── LAZY_LOADING_IMPROVEMENTS.md
+│   ├── TESTING.md
+│   ├── TESTING_CACHE_TTL.md
+│   ├── FIO_TESTING.md
+│   └── UNIT_TEST_SETUP.md
+├── CMakeLists.txt      # Unified build configuration
 └── README.md
 ```
 
 ## Documentation
 
-- [LAZY_LOADING_IMPROVEMENTS.md](LAZY_LOADING_IMPROVEMENTS.md) - Implementation details
-- [src/tests/FIO_TESTING.md](src/tests/FIO_TESTING.md) - Performance testing guide
-- [README_gcs_fs.md](README_gcs_fs.md) - Additional GCS filesystem documentation
+- [doc/README_gcs_fs.md](doc/README_gcs_fs.md) - GCS filesystem implementation details
+- [doc/LAZY_LOADING_IMPROVEMENTS.md](doc/LAZY_LOADING_IMPROVEMENTS.md) - Lazy loading architecture
+- [doc/TESTING.md](doc/TESTING.md) - Testing overview
+- [doc/UNIT_TEST_SETUP.md](doc/UNIT_TEST_SETUP.md) - Unit testing guide
+- [doc/TESTING_CACHE_TTL.md](doc/TESTING_CACHE_TTL.md) - E2E testing guide
+- [doc/FIO_TESTING.md](doc/FIO_TESTING.md) - Performance testing guide
 
 ## License
 
