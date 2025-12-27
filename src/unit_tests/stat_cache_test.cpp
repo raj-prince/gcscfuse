@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 #include <thread>
 #include <chrono>
-#include "../../stat_cache.hpp"
+#include "stat_cache.hpp"
 
 // Test fixture for StatCache tests
 class StatCacheTest : public ::testing::Test {
