@@ -130,13 +130,5 @@ add_custom_target(fio
     COMMENT "Running FIO performance tests..."
 )
 
-add_custom_target(fio-compare
-    COMMAND ${CMAKE_COMMAND} -E env BUCKET=${BUCKET} bash ${CMAKE_SOURCE_DIR}/tests/perf/fio_compare.sh
-    DEPENDS gcscfuse
-    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMENT "Running FIO comparison tests..."
-)
-
 message(STATUS "Use 'make fio' to run performance tests (default: princer-working-dirs)")
 message(STATUS "Use 'make fio BUCKET=<name>' to test with a different bucket")
-message(STATUS "Use 'make fio-compare' to compare cache performance")
