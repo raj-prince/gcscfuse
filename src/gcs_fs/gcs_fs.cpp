@@ -6,12 +6,34 @@
 #include <algorithm>
 #include <set>
 #include <chrono>
+#include <cstdarg>
+#include <fuse_log.h>
 
 GCSFS::GCSFS(const std::string& bucket_name, const GCSFSConfig& config)
     : bucket_name_(bucket_name),
       config_(config),
       client_(gcs::Client())
 {
+    // Set up FUSE logging if debug or verbose mode enabled
+    if (config_.debug_mode || config_.verbose_logging) {
+        fuse_set_log_func([](enum fuse_log_level level, const char *fmt, va_list ap) {
+            const char* level_str = "UNKNOWN";
+            switch (level) {
+                case FUSE_LOG_EMERG:   level_str = "EMERG"; break;
+                case FUSE_LOG_ALERT:   level_str = "ALERT"; break;
+                case FUSE_LOG_CRIT:    level_str = "CRIT"; break;
+                case FUSE_LOG_ERR:     level_str = "ERR"; break;
+                case FUSE_LOG_WARNING: level_str = "WARNING"; break;
+                case FUSE_LOG_NOTICE:  level_str = "NOTICE"; break;
+                case FUSE_LOG_INFO:    level_str = "INFO"; break;
+                case FUSE_LOG_DEBUG:   level_str = "DEBUG"; break;
+            }
+            fprintf(stderr, "[FUSE-%s] ", level_str);
+            vfprintf(stderr, fmt, ap);
+            fprintf(stderr, "\n");
+        });
+    }
+    
     std::cout << "Initializing GCSFS for bucket: " << bucket_name_ << std::endl;
     if (config_.debug_mode) {
         std::cout << "[DEBUG] Stat cache: " << (config_.enable_stat_cache ? "enabled" : "disabled") << std::endl;
