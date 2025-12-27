@@ -1,0 +1,14 @@
+GCSFS FIO Performance Benchmark Summary
+========================================
+Date: Sat Dec 27 13:02:02 UTC 2025
+Bucket: princer-working-dirs
+Test Size: 100M
+Runtime: 30s per test
+Jobs: 4
+
+Test Results:
+-------------
+01_seq_write:                  BW:  5614.85 MB/s, IOPS:     5615
+03_rand_write_4k:              BW:   684.68 MB/s, IOPS:   175279
+05_mixed_rw:                   BW:   180.11 MB/s, IOPS:    46108
+Metadata (100 stats): 0.115643307s

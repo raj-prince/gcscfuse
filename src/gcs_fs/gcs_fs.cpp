@@ -37,49 +37,18 @@ GCSFS::GCSFS(const std::string& bucket_name, const GCSFSConfig& config)
     std::cout << "Initializing GCSFS for bucket: " << bucket_name_ << std::endl;
     if (config_.debug_mode) {
         std::cout << "[DEBUG] Stat cache: " << (config_.enable_stat_cache ? "enabled" : "disabled") << std::endl;
+        if (config_.enable_stat_cache) {
+            std::cout << "[DEBUG] Stat cache TTL: " << config_.stat_cache_timeout << " seconds" << std::endl;
+        }
         std::cout << "[DEBUG] File content cache: " << (config_.enable_file_content_cache ? "enabled" : "disabled") << std::endl;
     }
+    stat_cache_.setCacheTimeout(config_.stat_cache_timeout);
 }
 
 void GCSFS::loadFileList() const
 {
-    if (files_loaded_) return;
-    
-    std::cout << "Loading file list from bucket: " << bucket_name_ << std::endl;
-    
-    try {
-        for (auto&& object_metadata : client_.ListObjects(bucket_name_)) {
-            if (!object_metadata) {
-                std::cerr << "Error listing objects: " << object_metadata.status() << std::endl;
-                break;
-            }
-            
-            std::string name = object_metadata->name();
-            // Skip directories (objects ending with /)
-            if (!name.empty() && name.back() != '/') {
-                file_list_.push_back(name);
-                
-                // Add to stat cache with metadata (if enabled)
-                if (config_.enable_stat_cache) {
-                    off_t size = static_cast<off_t>(object_metadata->size());
-                    time_t mtime = std::chrono::system_clock::to_time_t(
-                        object_metadata->time_created()
-                    );
-                    stat_cache_.insertFile("/" + name, size, mtime);
-                }
-                
-                if (config_.verbose_logging) {
-                    std::cout << "Found file: " << name << " (size: " 
-                              << object_metadata->size() << " bytes)" << std::endl;
-                } else if (config_.debug_mode) {
-                    std::cout << "Found file: " << name << std::endl;
-                }
-            }
-        }
-        files_loaded_ = true;
-    } catch (const std::exception& e) {
-        std::cerr << "Error loading file list: " << e.what() << std::endl;
-    }
+    // Deprecated - now using lazy per-directory loading
+    // Kept for compatibility but does nothing
 }
 
 const std::string& GCSFS::getFileContent(const std::string& path) const
@@ -135,28 +104,45 @@ bool GCSFS::isValidPath(const std::string& path) const
 {
     if (path == root_path_) return true;
     
+    // Check stat cache first
+    if (config_.enable_stat_cache) {
+        auto cached = stat_cache_.getStat(path);
+        if (cached.has_value()) {
+            return true;
+        }
+    }
+    
     std::string object_name = path;
     if (!object_name.empty() && object_name[0] == '/') {
         object_name = object_name.substr(1);
     }
     
-    const_cast<GCSFS*>(this)->loadFileList();
-    
-    // Check if it's a file
-    if (std::find(file_list_.begin(), file_list_.end(), object_name) != file_list_.end()) {
-        return true;
-    }
-    
-    // Check if it's a directory (a prefix of any file)
-    std::string dir_prefix = object_name;
-    if (!dir_prefix.empty() && dir_prefix.back() != '/') {
-        dir_prefix += '/';
-    }
-    
-    for (const auto& file : file_list_) {
-        if (file.find(dir_prefix) == 0) {
+    // Check if it's a file by trying to get its metadata
+    try {
+        auto metadata = client_.GetObjectMetadata(bucket_name_, object_name);
+        if (metadata.ok()) {
             return true;
         }
+    } catch (...) {
+        // Not a file, continue to check if directory
+    }
+    
+    // Check if it's a directory by listing with prefix
+    try {
+        std::string dir_prefix = object_name;
+        if (!dir_prefix.empty() && dir_prefix.back() != '/') {
+            dir_prefix += '/';
+        }
+        
+        auto objects = client_.ListObjects(bucket_name_, gcs::Prefix(dir_prefix), gcs::MaxResults(1));
+        for (auto&& obj : objects) {
+            if (obj.ok()) {
+                return true;  // Found at least one object with this prefix
+            }
+            break;
+        }
+    } catch (...) {
+        // Error checking directory
     }
     
     return false;
@@ -166,23 +152,35 @@ bool GCSFS::isDirectory(const std::string& path) const
 {
     if (path == root_path_) return true;
     
+    // Check stat cache first
+    if (config_.enable_stat_cache) {
+        auto cached = stat_cache_.getStat(path);
+        if (cached.has_value() && cached->is_directory) {
+            return true;
+        }
+    }
+    
     std::string object_name = path;
     if (!object_name.empty() && object_name[0] == '/') {
         object_name = object_name.substr(1);
     }
     
-    const_cast<GCSFS*>(this)->loadFileList();
-    
-    // Check if any file starts with this path as a directory prefix
-    std::string dir_prefix = object_name;
-    if (!dir_prefix.empty() && dir_prefix.back() != '/') {
-        dir_prefix += '/';
-    }
-    
-    for (const auto& file : file_list_) {
-        if (file.find(dir_prefix) == 0) {
-            return true;
+    // Check if any objects exist with this prefix
+    try {
+        std::string dir_prefix = object_name;
+        if (!dir_prefix.empty() && dir_prefix.back() != '/') {
+            dir_prefix += '/';
         }
+        
+        auto objects = client_.ListObjects(bucket_name_, gcs::Prefix(dir_prefix), gcs::MaxResults(1));
+        for (auto&& obj : objects) {
+            if (obj.ok()) {
+                return true;  // Found at least one object with this prefix
+            }
+            break;
+        }
+    } catch (...) {
+        // Error checking directory
     }
     
     return false;
@@ -193,9 +191,6 @@ int GCSFS::getattr(const char *path, struct stat *stbuf, struct fuse_file_info *
     const auto ptr = this_();
     
     memset(stbuf, 0, sizeof(struct stat));
-    
-    // Ensure file list is loaded to populate cache
-    ptr->loadFileList();
     
     // Try to get stat from cache first (if enabled)
     if (ptr->config_.enable_stat_cache) {
@@ -208,9 +203,11 @@ int GCSFS::getattr(const char *path, struct stat *stbuf, struct fuse_file_info *
             stbuf->st_mtime = info.mtime;
             
             if (ptr->config_.debug_mode) {
-                std::cout << "[DEBUG] Stat cache hit for: " << path << std::endl;
+                std::cout << "[DEBUG] ✓ Stat cache HIT for: " << path << std::endl;
             }
             return 0;
+        } else if (ptr->config_.debug_mode) {
+            std::cout << "[DEBUG] ✗ Stat cache MISS for: " << path << " (expired or not cached)" << std::endl;
         }
     }
     
@@ -272,28 +269,46 @@ int GCSFS::readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     filler(buf, ".", nullptr, 0, FUSE_FILL_DIR_PLUS);
     filler(buf, "..", nullptr, 0, FUSE_FILL_DIR_PLUS);
     
-    // Load file list
-    ptr->loadFileList();
+    // Lazy load: List objects with this directory as prefix
+    if (ptr->config_.debug_mode) {
+        std::cout << "[DEBUG] Listing directory: " << (dir_path.empty() ? "/" : dir_path) << std::endl;
+    }
     
     // Track subdirectories and files at this level
     std::set<std::string> entries;
     
-    for (const auto& file : ptr->file_list_) {
-        // Check if file is in this directory
-        if (dir_path.empty() || file.find(dir_path) == 0) {
-            std::string relative = dir_path.empty() ? file : file.substr(dir_path.length());
+    try {
+        // List objects with this directory prefix and delimiter to get immediate children
+        gcs::Prefix prefix(dir_path);
+        gcs::Delimiter delimiter("/");
+        
+        for (auto&& object_metadata : ptr->client_.ListObjects(ptr->bucket_name_, prefix, delimiter)) {
+            if (!object_metadata) {
+                std::cerr << "Error listing objects: " << object_metadata.status() << std::endl;
+                break;
+            }
             
-            // Find the first slash to determine if it's a subdirectory or file
+            std::string name = object_metadata->name();
+            
+            // Remove directory prefix
+            std::string relative = dir_path.empty() ? name : name.substr(dir_path.length());
+            
+            // Skip if empty or is a directory marker (ends with /)
+            if (relative.empty() || relative.back() == '/') {
+                continue;
+            }
+            
+            // Find first slash to determine if subdirectory or file
             size_t slash_pos = relative.find('/');
             std::string entry_name;
             bool is_subdir = false;
             
             if (slash_pos != std::string::npos) {
-                // It's a subdirectory
+                // Subdirectory
                 entry_name = relative.substr(0, slash_pos);
                 is_subdir = true;
             } else {
-                // It's a file in this directory
+                // File in this directory
                 entry_name = relative;
                 is_subdir = false;
             }
@@ -301,7 +316,7 @@ int GCSFS::readdir(const char *path, void *buf, fuse_fill_dir_t filler,
             if (!entry_name.empty() && entries.find(entry_name) == entries.end()) {
                 entries.insert(entry_name);
                 
-                // Populate stat cache for this entry (if enabled)
+                // Populate stat cache
                 if (ptr->config_.enable_stat_cache) {
                     std::string full_path = path;
                     if (full_path != "/" && full_path.back() != '/') {
@@ -309,16 +324,28 @@ int GCSFS::readdir(const char *path, void *buf, fuse_fill_dir_t filler,
                     }
                     full_path += entry_name;
                     
-                    // Ensure the entry is in the cache
                     if (is_subdir) {
                         ptr->stat_cache_.insertDirectory(full_path);
+                    } else {
+                        off_t size = static_cast<off_t>(object_metadata->size());
+                        time_t mtime = std::chrono::system_clock::to_time_t(
+                            object_metadata->time_created()
+                        );
+                        ptr->stat_cache_.insertFile(full_path, size, mtime);
                     }
-                    // Files are already in cache from loadFileList()
+                }
+                
+                if (ptr->config_.debug_mode) {
+                    std::cout << "[DEBUG] Found entry: " << entry_name 
+                              << (is_subdir ? " (dir)" : " (file)") << std::endl;
                 }
                 
                 filler(buf, entry_name.c_str(), nullptr, 0, FUSE_FILL_DIR_PLUS);
             }
         }
+    } catch (const std::exception& e) {
+        std::cerr << "Error listing directory: " << e.what() << std::endl;
+        return -EIO;
     }
     
     return 0;
@@ -418,11 +445,6 @@ int GCSFS::create(const char *path, mode_t mode, struct fuse_file_info *fi)
     // Initialize empty file in write buffer
     ptr->write_buffers_[object_name] = "";
     ptr->markDirty(object_name);
-    
-    // Add to file list
-    if (std::find(ptr->file_list_.begin(), ptr->file_list_.end(), object_name) == ptr->file_list_.end()) {
-        ptr->file_list_.push_back(object_name);
-    }
     
     // Update stat cache
     if (ptr->config_.enable_stat_cache) {
@@ -582,11 +604,6 @@ int GCSFS::unlink(const char *path)
         ptr->write_buffers_.erase(object_name);
         ptr->dirty_files_.erase(object_name);
         ptr->stat_cache_.remove(std::string("/") + object_name);
-        
-        auto it = std::find(ptr->file_list_.begin(), ptr->file_list_.end(), object_name);
-        if (it != ptr->file_list_.end()) {
-            ptr->file_list_.erase(it);
-        }
         
         if (ptr->config_.verbose_logging) {
             std::cout << "Deleted " << object_name << std::endl;

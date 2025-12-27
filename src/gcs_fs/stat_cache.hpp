@@ -19,11 +19,12 @@ public:
         mode_t mode;           // File type and permissions
         off_t size;            // File size in bytes
         time_t mtime;          // Last modification time
+        time_t cache_time;     // Time when this entry was cached
         bool is_directory;     // True if this is a directory
         bool metadata_loaded;  // True if metadata has been fetched from GCS
         
         StatInfo() 
-            : mode(0), size(0), mtime(0), is_directory(false), metadata_loaded(false) {}
+            : mode(0), size(0), mtime(0), cache_time(0), is_directory(false), metadata_loaded(false) {}
     };
 
 private:
@@ -36,6 +37,13 @@ private:
     };
 
     std::unique_ptr<TrieNode> root_;
+    int cache_timeout_ = 60;  // Default 60 seconds timeout
+    
+    // Check if cache entry is expired
+    bool isExpired(const StatInfo& info) const {
+        if (cache_timeout_ <= 0) return false;  // No timeout
+        return (time(nullptr) - info.cache_time) > cache_timeout_;
+    }
 
     // Helper to split path into components
     std::vector<std::string> splitPath(const std::string& path) const;
@@ -46,6 +54,9 @@ private:
 public:
     StatCache();
     ~StatCache() = default;
+    
+    // Set cache timeout in seconds (0 = no timeout)
+    void setCacheTimeout(int timeout_seconds) { cache_timeout_ = timeout_seconds; }
 
     // Insert a file with its metadata
     void insertFile(const std::string& path, off_t size, time_t mtime);

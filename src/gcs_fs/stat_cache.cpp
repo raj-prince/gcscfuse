@@ -77,6 +77,7 @@ void StatCache::insertFile(const std::string& path, off_t size, time_t mtime) {
         node->stat_info.mode = S_IFREG | 0644;  // Read-write file
         node->stat_info.size = size;
         node->stat_info.mtime = mtime;
+        node->stat_info.cache_time = time(nullptr);
         node->stat_info.metadata_loaded = true;
     }
 }
@@ -91,6 +92,7 @@ void StatCache::insertDirectory(const std::string& path) {
         node->stat_info.mode = S_IFDIR | 0755;
         node->stat_info.size = 0;
         node->stat_info.mtime = time(nullptr);
+        node->stat_info.cache_time = time(nullptr);
         node->stat_info.metadata_loaded = true;
     }
 }
@@ -102,6 +104,10 @@ std::optional<StatCache::StatInfo> StatCache::getStat(const std::string& path) c
     
     TrieNode* node = const_cast<StatCache*>(this)->findNode(path, false);
     if (node && node->exists && node->stat_info.metadata_loaded) {
+        // Check if expired (lazy eviction)
+        if (isExpired(node->stat_info)) {
+            return std::nullopt;
+        }
         return node->stat_info;
     }
     

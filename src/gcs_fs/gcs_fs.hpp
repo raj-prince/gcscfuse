@@ -57,8 +57,10 @@ private:
     
     // Cache for file contents
     mutable std::map<std::string, std::string> file_cache_;
-    mutable std::vector<std::string> file_list_;
-    mutable bool files_loaded_ = false;
+    
+    // Deprecated: file_list_ and files_loaded_ are no longer used (lazy loading per-directory now)
+    // mutable std::vector<std::string> file_list_;
+    // mutable bool files_loaded_ = false;
     
     // Write buffers for modified files (path -> content)
     mutable std::map<std::string, std::string> write_buffers_;

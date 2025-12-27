@@ -11,6 +11,7 @@
 struct GCSFSConfig {
     // Stat cache settings
     bool enable_stat_cache = true;
+    int stat_cache_timeout = 60;  // seconds, 0 = no timeout
     
     // File content cache settings
     bool enable_file_content_cache = true;

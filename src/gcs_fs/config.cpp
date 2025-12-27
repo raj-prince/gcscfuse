@@ -9,9 +9,8 @@ GCSFSConfig GCSFSConfig::parseFromArgs(int argc, char* argv[]) {
     
     // Define long options
     static struct option long_options[] = {
-        {"enable-stat-cache",    no_argument,       0, 'S'},
         {"disable-stat-cache",   no_argument,       0, 's'},
-        {"enable-file-cache",    no_argument,       0, 'F'},
+        {"stat-cache-ttl",       required_argument, 0, 'T'},
         {"disable-file-cache",   no_argument,       0, 'f'},
         {"debug",                no_argument,       0, 'd'},
         {"verbose",              no_argument,       0, 'v'},
@@ -36,14 +35,11 @@ GCSFSConfig GCSFSConfig::parseFromArgs(int argc, char* argv[]) {
     // Parse options
     while ((opt = getopt_long(argc, argv, "o:dfvh", long_options, &option_index)) != -1) {
         switch (opt) {
-            case 'S':
-                config.enable_stat_cache = true;
-                break;
             case 's':
                 config.enable_stat_cache = false;
                 break;
-            case 'F':
-                config.enable_file_content_cache = true;
+            case 'T':
+                config.stat_cache_timeout = atoi(optarg);
                 break;
             case 'f':
                 // This could be -f for foreground (FUSE) or --disable-file-cache
@@ -114,10 +110,9 @@ void GCSFSConfig::printUsage(const char* program_name) {
     std::cout << "  mount_point              Directory to mount the filesystem\n\n";
     
     std::cout << "GCSFS options:\n";
-    std::cout << "  --enable-stat-cache      Enable stat metadata cache (default: enabled)\n";
-    std::cout << "  --disable-stat-cache     Disable stat metadata cache\n";
-    std::cout << "  --enable-file-cache      Enable file content cache (default: enabled)\n";
-    std::cout << "  --disable-file-cache     Disable file content cache\n";
+    std::cout << "  --disable-stat-cache     Disable stat metadata cache (enabled by default)\n";
+    std::cout << "  --stat-cache-ttl=N       Stat cache timeout in seconds (default: 60, 0=no timeout)\n";
+    std::cout << "  --disable-file-cache     Disable file content cache (enabled by default)\n";
     std::cout << "  --debug                  Enable debug logging\n";
     std::cout << "  --verbose                Enable verbose output\n";
     std::cout << "  --help                   Display this help message\n\n";
