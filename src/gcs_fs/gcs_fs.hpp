@@ -7,6 +7,7 @@
 #include <vector>
 #include "fuse_cpp_wrapper.hpp"
 #include "google/cloud/storage/client.h"
+#include "stat_cache.hpp"
 
 namespace gcs = ::google::cloud::storage;
 
@@ -39,6 +40,9 @@ private:
     std::string bucket_name_;
     std::string root_path_ = "/";
     mutable gcs::Client client_;  // mutable because GCS client methods are non-const
+    
+    // Stat cache for metadata
+    mutable StatCache stat_cache_;
     
     // Cache for file contents
     mutable std::map<std::string, std::string> file_cache_;

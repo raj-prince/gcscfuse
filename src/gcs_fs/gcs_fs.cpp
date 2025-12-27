@@ -5,6 +5,7 @@
 #include <iostream>
 #include <algorithm>
 #include <set>
+#include <chrono>
 
 GCSFS::GCSFS(const std::string& bucket_name)
     : bucket_name_(bucket_name),
@@ -30,7 +31,15 @@ void GCSFS::loadFileList() const
             // Skip directories (objects ending with /)
             if (!name.empty() && name.back() != '/') {
                 file_list_.push_back(name);
-                std::cout << "Found file: " << name << std::endl;
+                
+                // Add to stat cache with metadata
+                off_t size = static_cast<off_t>(object_metadata->size());
+                time_t mtime = std::chrono::system_clock::to_time_t(
+                    object_metadata->time_created()
+                );
+                stat_cache_.insertFile("/" + name, size, mtime);
+                
+                std::cout << "Found file: " << name << " (size: " << size << " bytes)" << std::endl;
             }
         }
         files_loaded_ = true;
@@ -133,6 +142,21 @@ int GCSFS::getattr(const char *path, struct stat *stbuf, struct fuse_file_info *
     
     memset(stbuf, 0, sizeof(struct stat));
     
+    // Ensure file list is loaded to populate cache
+    ptr->loadFileList();
+    
+    // Try to get stat from cache first
+    auto cached_stat = ptr->stat_cache_.getStat(path);
+    if (cached_stat.has_value()) {
+        const auto& info = cached_stat.value();
+        stbuf->st_mode = info.mode;
+        stbuf->st_nlink = info.is_directory ? 2 : 1;
+        stbuf->st_size = info.size;
+        stbuf->st_mtime = info.mtime;
+        return 0;
+    }
+    
+    // Fallback to old behavior if not in cache
     if (path == ptr->rootPath()) {
         stbuf->st_mode = S_IFDIR | 0755;
         stbuf->st_nlink = 2;
@@ -192,17 +216,34 @@ int GCSFS::readdir(const char *path, void *buf, fuse_fill_dir_t filler,
             // Find the first slash to determine if it's a subdirectory or file
             size_t slash_pos = relative.find('/');
             std::string entry_name;
+            bool is_subdir = false;
             
             if (slash_pos != std::string::npos) {
                 // It's a subdirectory
                 entry_name = relative.substr(0, slash_pos);
+                is_subdir = true;
             } else {
                 // It's a file in this directory
                 entry_name = relative;
+                is_subdir = false;
             }
             
             if (!entry_name.empty() && entries.find(entry_name) == entries.end()) {
                 entries.insert(entry_name);
+                
+                // Populate stat cache for this entry
+                std::string full_path = path;
+                if (full_path != "/" && full_path.back() != '/') {
+                    full_path += "/";
+                }
+                full_path += entry_name;
+                
+                // Ensure the entry is in the cache
+                if (is_subdir) {
+                    ptr->stat_cache_.insertDirectory(full_path);
+                }
+                // Files are already in cache from loadFileList()
+                
                 filler(buf, entry_name.c_str(), nullptr, 0, FUSE_FILL_DIR_PLUS);
             }
         }

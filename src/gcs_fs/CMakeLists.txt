@@ -51,6 +51,8 @@ add_executable(gcs_fs
         main.cpp
         gcs_fs.cpp
         gcs_fs.hpp
+        stat_cache.cpp
+        stat_cache.hpp
 )
 
 target_link_libraries(gcs_fs 
