@@ -82,7 +82,7 @@ add_custom_target(build DEPENDS gcscfuse)
 # Unit tests
 if(GTest_FOUND OR GTEST_FOUND)
     add_executable(run_tests
-        src/unit_tests/stat_cache_test.cpp
+        src/stat_cache_test.cpp
         src/stat_cache.cpp
         src/stat_cache.hpp
     )
