@@ -4,21 +4,15 @@
 # 1. Install system dependencies:
 #    sudo apt-get update && sudo apt-get install -y \
 #        build-essential cmake pkg-config git \
-#        libfuse3-dev libgtest-dev curl zip unzip tar
-#
-# 2. Install vcpkg (package manager for C++ dependencies):
-#    git clone https://github.com/microsoft/vcpkg $HOME/vcpkg
-#    $HOME/vcpkg/bootstrap-vcpkg.sh
-#
-# 3. Install google-cloud-cpp via vcpkg (first time takes 15-20 minutes):
-#    $HOME/vcpkg/vcpkg install google-cloud-cpp[core,storage]
+#        libfuse3-dev curl zip unzip tar ninja-build
 #
 # BUILD INSTRUCTIONS:
 #    cd /path/to/gcscfuse
 #    mkdir -p build && cd build
-#    cmake .. -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake
-#    make build      # Build the binary
-#    make test       # Run unit tests
+#    cmake .. && make setup  # First time: downloads and sets up vcpkg + dependencies
+#    cmake ..                # Reconfigure after setup
+#    make build              # Build the binary
+#    make test               # Run unit tests
 #
 # RUN INSTRUCTIONS:
 #    export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
@@ -36,6 +30,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Enable testing
 enable_testing()
+
+# Set vcpkg root directory
+set(VCPKG_ROOT "$ENV{HOME}/vcpkg" CACHE PATH "Path to vcpkg installation")
+
+# Setup target for initial vcpkg installation
+add_custom_target(setup
+    COMMAND bash ${CMAKE_SOURCE_DIR}/setup-vcpkg.sh
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Setting up vcpkg and installing dependencies"
+)
 
 # Find FUSE3
 find_package(PkgConfig REQUIRED)
