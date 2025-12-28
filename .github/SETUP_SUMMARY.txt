@@ -1,0 +1,45 @@
+================================================================================
+CI/CD SETUP - READY TO USE! ✅
+================================================================================
+
+✅ Main CI Workflow (.github/workflows/ci.yml)
+   • Runs automatically on every PR
+   • No setup or authentication required
+   • Tests: Unit tests only (no GCP needed)
+   • Platforms: Ubuntu 22.04 & 20.04
+   • Build types: Release & Debug
+
+⚙️  E2E Tests Workflow (.github/workflows/e2e-tests.yml)
+   • Manual trigger only (optional)
+   • Requires: GCP_SERVICE_ACCOUNT_KEY secret + test bucket
+   • Run via: Actions tab → "E2E Tests (Manual)" → Run workflow
+
+--------------------------------------------------------------------------------
+USAGE
+--------------------------------------------------------------------------------
+
+1. Create a PR → CI runs automatically ✅
+2. No configuration needed!
+3. Check results in PR status checks
+
+For E2E tests (optional):
+   gh workflow run e2e-tests.yml -f test_bucket=YOUR_BUCKET
+
+--------------------------------------------------------------------------------
+FILES CREATED
+--------------------------------------------------------------------------------
+
+✅ .github/workflows/ci.yml           - Main CI (auto, no auth)
+⚙️  .github/workflows/e2e-tests.yml   - E2E tests (manual, needs GCP)
+📚 .github/README.md                  - CI documentation
+🚀 .github/QUICKSTART.md              - Quick start guide
+🧪 .github/validate-local.sh          - Local testing script
+📦 .github/setup-ci.sh                - E2E setup helper (optional)
+
+--------------------------------------------------------------------------------
+READY TO USE!
+--------------------------------------------------------------------------------
+
+Just push your code and create PRs. CI will run automatically! 🎉
+No GCP authentication required for standard CI workflow.
+
