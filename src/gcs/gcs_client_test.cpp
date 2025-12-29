@@ -24,29 +24,28 @@ public:
     MOCK_METHOD(
         (google::cloud::StatusOr<gcs::ObjectMetadata>),
         GetObjectMetadata,
-        (const std::string& bucket_name, const std::string& object_name),
+        (const gcscfuse::IGCSSDKClient::GetObjectMetadataRequest& request),
         (const, override)
     );
     
     MOCK_METHOD(
         gcs::ObjectWriteStream,
         WriteObject,
-        (const std::string& bucket_name, const std::string& object_name),
+        (const gcscfuse::IGCSSDKClient::WriteObjectRequest& request),
         (const, override)
     );
     
     MOCK_METHOD(
         google::cloud::Status,
         DeleteObject,
-        (const std::string& bucket_name, const std::string& object_name),
+        (const gcscfuse::IGCSSDKClient::DeleteObjectRequest& request),
         (const, override)
     );
     
     MOCK_METHOD(
         gcs::ListObjectsReader,
         ListObjects,
-        (const std::string& bucket_name, const std::string& prefix, 
-         const std::string& delimiter, int max_results),
+        (const gcscfuse::IGCSSDKClient::ListObjectsRequest& request),
         (const, override)
     );
 };
@@ -76,8 +75,12 @@ TEST_F(GCSClientTest, GetObjectMetadata_Success) {
     
     auto mock_metadata = createMockMetadata(object, 12345);
     
-    EXPECT_CALL(*mock_sdk_client_ptr, GetObjectMetadata(bucket, object))
-        .WillOnce(Return(mock_metadata));
+    EXPECT_CALL(*mock_sdk_client_ptr, GetObjectMetadata(::testing::_))
+        .WillOnce(::testing::Invoke([&](const gcscfuse::IGCSSDKClient::GetObjectMetadataRequest& req) {
+            EXPECT_EQ(req.bucket_name, bucket);
+            EXPECT_EQ(req.object_name, object);
+            return mock_metadata;
+        }));
     
     gcscfuse::GCSClient client(std::move(mock_sdk_client));
     auto result = client.getObjectMetadata(bucket, object);
@@ -95,8 +98,12 @@ TEST_F(GCSClientTest, GetObjectMetadata_NotFound) {
     
     google::cloud::Status not_found_status(google::cloud::StatusCode::kNotFound, "Object not found");
     
-    EXPECT_CALL(*mock_sdk_client_ptr, GetObjectMetadata(bucket, object))
-        .WillOnce(Return(not_found_status));
+    EXPECT_CALL(*mock_sdk_client_ptr, GetObjectMetadata(::testing::_))
+        .WillOnce(::testing::Invoke([&](const gcscfuse::IGCSSDKClient::GetObjectMetadataRequest& req) {
+            EXPECT_EQ(req.bucket_name, bucket);
+            EXPECT_EQ(req.object_name, object);
+            return not_found_status;
+        }));
     
     gcscfuse::GCSClient client(std::move(mock_sdk_client));
     auto result = client.getObjectMetadata(bucket, object);
@@ -126,8 +133,12 @@ TEST_F(GCSClientTest, ObjectExists_True) {
     
     auto mock_metadata = createMockMetadata(object, 100);
     
-    EXPECT_CALL(*mock_sdk_client_ptr, GetObjectMetadata(bucket, object))
-        .WillOnce(Return(mock_metadata));
+    EXPECT_CALL(*mock_sdk_client_ptr, GetObjectMetadata(::testing::_))
+        .WillOnce(::testing::Invoke([&](const gcscfuse::IGCSSDKClient::GetObjectMetadataRequest& req) {
+            EXPECT_EQ(req.bucket_name, bucket);
+            EXPECT_EQ(req.object_name, object);
+            return mock_metadata;
+        }));
     
     gcscfuse::GCSClient client(std::move(mock_sdk_client));
     bool exists = client.objectExists(bucket, object);
@@ -142,8 +153,12 @@ TEST_F(GCSClientTest, ObjectExists_False) {
     
     google::cloud::Status not_found(google::cloud::StatusCode::kNotFound, "Not found");
     
-    EXPECT_CALL(*mock_sdk_client_ptr, GetObjectMetadata(bucket, object))
-        .WillOnce(Return(not_found));
+    EXPECT_CALL(*mock_sdk_client_ptr, GetObjectMetadata(::testing::_))
+        .WillOnce(::testing::Invoke([&](const gcscfuse::IGCSSDKClient::GetObjectMetadataRequest& req) {
+            EXPECT_EQ(req.bucket_name, bucket);
+            EXPECT_EQ(req.object_name, object);
+            return not_found;
+        }));
     
     gcscfuse::GCSClient client(std::move(mock_sdk_client));
     bool exists = client.objectExists(bucket, object);
@@ -156,8 +171,12 @@ TEST_F(GCSClientTest, DeleteObject_Success) {
     const std::string bucket = "test-bucket";
     const std::string object = "file-to-delete.txt";
     
-    EXPECT_CALL(*mock_sdk_client_ptr, DeleteObject(bucket, object))
-        .WillOnce(Return(google::cloud::Status()));  // OK status
+    EXPECT_CALL(*mock_sdk_client_ptr, DeleteObject(::testing::_))
+        .WillOnce(::testing::Invoke([&](const gcscfuse::IGCSSDKClient::DeleteObjectRequest& req) {
+            EXPECT_EQ(req.bucket_name, bucket);
+            EXPECT_EQ(req.object_name, object);
+            return google::cloud::Status();
+        }));
     
     gcscfuse::GCSClient client(std::move(mock_sdk_client));
     bool result = client.deleteObject(bucket, object);
@@ -172,8 +191,12 @@ TEST_F(GCSClientTest, DeleteObject_Failure) {
     
     google::cloud::Status error_status(google::cloud::StatusCode::kPermissionDenied, "Permission denied");
     
-    EXPECT_CALL(*mock_sdk_client_ptr, DeleteObject(bucket, object))
-        .WillOnce(Return(error_status));
+    EXPECT_CALL(*mock_sdk_client_ptr, DeleteObject(::testing::_))
+        .WillOnce(::testing::Invoke([&](const gcscfuse::IGCSSDKClient::DeleteObjectRequest& req) {
+            EXPECT_EQ(req.bucket_name, bucket);
+            EXPECT_EQ(req.object_name, object);
+            return error_status;
+        }));
     
     gcscfuse::GCSClient client(std::move(mock_sdk_client));
     bool result = client.deleteObject(bucket, object);
