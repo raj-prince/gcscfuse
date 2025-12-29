@@ -16,7 +16,11 @@ std::optional<ObjectMetadata> GCSClient::getObjectMetadata(
     const std::string& object_name) const 
 {
     try {
-        auto metadata = sdk_client_->GetObjectMetadata(bucket_name, object_name);
+        IGCSSDKClient::GetObjectMetadataRequest req;
+        req.bucket_name = bucket_name;
+        req.object_name = object_name;
+        
+        auto metadata = sdk_client_->GetObjectMetadata(req);
         if (!metadata) {
             return std::nullopt;
         }
@@ -50,7 +54,11 @@ bool GCSClient::writeObject(
     const std::string& content) const 
 {
     try {
-        auto writer = sdk_client_->WriteObject(bucket_name, object_name);
+        IGCSSDKClient::WriteObjectRequest req;
+        req.bucket_name = bucket_name;
+        req.object_name = object_name;
+        
+        auto writer = sdk_client_->WriteObject(req);
         writer << content;
         writer.Close();
         
@@ -70,7 +78,11 @@ bool GCSClient::deleteObject(
     const std::string& bucket_name,
     const std::string& object_name) const 
 {
-    auto status = sdk_client_->DeleteObject(bucket_name, object_name);
+    IGCSSDKClient::DeleteObjectRequest req;
+    req.bucket_name = bucket_name;
+    req.object_name = object_name;
+    
+    auto status = sdk_client_->DeleteObject(req);
     if (!status.ok()) {
         std::cerr << "Error deleting object: " << status.message() << std::endl;
         return false;
@@ -87,7 +99,13 @@ std::vector<ObjectMetadata> GCSClient::listObjects(
     std::vector<ObjectMetadata> results;
     
     try {
-        auto objects = sdk_client_->ListObjects(bucket_name, prefix, delimiter, max_results);
+        IGCSSDKClient::ListObjectsRequest req;
+        req.bucket_name = bucket_name;
+        req.prefix = prefix;
+        req.delimiter = delimiter;
+        req.max_results = max_results;
+        
+        auto objects = sdk_client_->ListObjects(req);
         
         for (auto&& object_metadata : objects) {
             if (!object_metadata) {
@@ -122,7 +140,13 @@ bool GCSClient::directoryExists(
     const std::string& bucket_name,
     const std::string& dir_prefix) const 
 {
-    auto objects = sdk_client_->ListObjects(bucket_name, dir_prefix, "", 1);
+    IGCSSDKClient::ListObjectsRequest req;
+    req.bucket_name = bucket_name;
+    req.prefix = dir_prefix;
+    req.delimiter = "";
+    req.max_results = 1;
+    
+    auto objects = sdk_client_->ListObjects(req);
     
     try {
         auto it = objects.begin();

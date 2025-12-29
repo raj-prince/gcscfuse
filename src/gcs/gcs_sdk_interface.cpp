@@ -10,38 +10,24 @@ gcs::ObjectReadStream GCSSDKClientImpl::ReadObject(const ReadObjectRequest& requ
     return client_.ReadObject(request.bucket_name, request.object_name);
 }
 
-StatusOr<gcs::ObjectMetadata> GCSSDKClientImpl::GetObjectMetadata(
-    const std::string& bucket_name,
-    const std::string& object_name) const 
-{
-    return client_.GetObjectMetadata(bucket_name, object_name);
+StatusOr<gcs::ObjectMetadata> GCSSDKClientImpl::GetObjectMetadata(const GetObjectMetadataRequest& request) const {
+    return client_.GetObjectMetadata(request.bucket_name, request.object_name);
 }
 
-gcs::ObjectWriteStream GCSSDKClientImpl::WriteObject(
-    const std::string& bucket_name,
-    const std::string& object_name) const 
-{
-    return client_.WriteObject(bucket_name, object_name);
+gcs::ObjectWriteStream GCSSDKClientImpl::WriteObject(const WriteObjectRequest& request) const {
+    return client_.WriteObject(request.bucket_name, request.object_name);
 }
 
-Status GCSSDKClientImpl::DeleteObject(
-    const std::string& bucket_name,
-    const std::string& object_name) const 
-{
-    return client_.DeleteObject(bucket_name, object_name);
+Status GCSSDKClientImpl::DeleteObject(const DeleteObjectRequest& request) const {
+    return client_.DeleteObject(request.bucket_name, request.object_name);
 }
 
-gcs::ListObjectsReader GCSSDKClientImpl::ListObjects(
-    const std::string& bucket_name,
-    const std::string& prefix,
-    const std::string& delimiter,
-    int max_results) const 
-{
+gcs::ListObjectsReader GCSSDKClientImpl::ListObjects(const ListObjectsRequest& request) const {
     return client_.ListObjects(
-        bucket_name,
-        gcs::Prefix(prefix),
-        gcs::Delimiter(delimiter),
-        gcs::MaxResults(max_results)
+        request.bucket_name,
+        gcs::Prefix(request.prefix),
+        gcs::Delimiter(request.delimiter),
+        gcs::MaxResults(request.max_results)
     );
 }
 
