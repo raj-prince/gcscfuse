@@ -24,19 +24,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Cache vcpkg packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/vcpkg/installed
-            ~/vcpkg/packages
-            ~/vcpkg/buildtrees
-            ~/.cache/vcpkg/archives
-          key: ${{ runner.os }}-vcpkg-gtest-gcp-storage-v2
-          restore-keys: |
-            ${{ runner.os }}-vcpkg-gtest-gcp-storage-
-            ${{ runner.os }}-vcpkg-
-      
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -54,13 +41,9 @@ jobs:
       
       - name: Setup vcpkg
         run: |
-          if [ ! -f "$HOME/vcpkg/vcpkg" ]; then
-            if [ ! -d "$HOME/vcpkg" ]; then
-              git clone https://github.com/microsoft/vcpkg $HOME/vcpkg
-            fi
-            cd $HOME/vcpkg
-            ./bootstrap-vcpkg.sh
-          fi
+          git clone https://github.com/microsoft/vcpkg $HOME/vcpkg
+          cd $HOME/vcpkg
+          ./bootstrap-vcpkg.sh
       
       - name: Export GitHub Actions cache
         uses: actions/github-script@v7
