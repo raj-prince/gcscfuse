@@ -70,7 +70,7 @@ jobs:
         run: |
           cd $HOME/vcpkg
           export VCPKG_MAX_CONCURRENCY=4
-          ./vcpkg install google-cloud-cpp[core,storage]:x64-linux gtest:x64-linux --recurse || exit 1
+          $HOME/vcpkg/vcpkg install google-cloud-cpp[core,storage]:x64-linux gtest:x64-linux --recurse || exit 1
         timeout-minutes: 60
         continue-on-error: false
       
