@@ -41,8 +41,7 @@ public:
         const std::string& object_name) const;
     
     virtual std::string readObject(
-        const std::string& bucket_name,
-        const std::string& object_name) const;
+        const IGCSSDKClient::ReadObjectRequest& request) const;
     
     virtual bool writeObject(
         const std::string& bucket_name,
