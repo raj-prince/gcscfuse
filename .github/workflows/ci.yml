@@ -54,9 +54,12 @@ jobs:
       
       - name: Setup vcpkg
         run: |
-          if [ ! -d "$HOME/vcpkg" ]; then
-            git clone https://github.com/microsoft/vcpkg $HOME/vcpkg
-            $HOME/vcpkg/bootstrap-vcpkg.sh
+          if [ ! -f "$HOME/vcpkg/vcpkg" ]; then
+            if [ ! -d "$HOME/vcpkg" ]; then
+              git clone https://github.com/microsoft/vcpkg $HOME/vcpkg
+            fi
+            cd $HOME/vcpkg
+            ./bootstrap-vcpkg.sh
           fi
       
       - name: Export GitHub Actions cache
