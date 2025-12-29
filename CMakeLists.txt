@@ -104,6 +104,12 @@ if(GTest_FOUND OR GTEST_FOUND)
         src/gcs/gcs_sdk_interface.hpp
     )
     
+    add_executable(run_config_tests
+        src/config_test.cpp
+        src/config.cpp
+        src/config.hpp
+    )
+    
     if(GTest_FOUND)
         target_link_libraries(run_tests 
             GTest::gtest 
@@ -115,6 +121,11 @@ if(GTest_FOUND OR GTEST_FOUND)
             GTest::gtest_main
             GTest::gmock
             google-cloud-cpp::storage
+            pthread
+        )
+        target_link_libraries(run_config_tests
+            GTest::gtest
+            GTest::gtest_main
             pthread
         )
     else()
@@ -132,11 +143,18 @@ if(GTest_FOUND OR GTEST_FOUND)
             google-cloud-cpp::storage
             pthread
         )
+        target_include_directories(run_config_tests PRIVATE ${GTEST_INCLUDE_DIRS})
+        target_link_libraries(run_config_tests
+            ${GTEST_LIBRARIES}
+            ${GTEST_MAIN_LIBRARIES}
+            pthread
+        )
     endif()
     
     # Add tests to CTest
     add_test(NAME stat_cache_tests COMMAND run_tests)
     add_test(NAME gcs_client_tests COMMAND run_gcs_client_tests)
+    add_test(NAME config_tests COMMAND run_config_tests)
     
     # Make sure tests are built before running 'make test'
     add_custom_target(check 

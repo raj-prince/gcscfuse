@@ -1,14 +1,177 @@
 #include "config.hpp"
 #include <getopt.h>
 #include <iostream>
+#include <fstream>
+#include <sstream>
 #include <cstring>
+#include <cstdlib>
 #include <stdexcept>
+#include <sys/stat.h>
 
-GCSFSConfig GCSFSConfig::parseFromArgs(int argc, char* argv[]) {
+// Simple YAML parser for our limited config needs
+namespace {
+    std::string trim(const std::string& str) {
+        size_t first = str.find_first_not_of(" \t\n\r");
+        if (first == std::string::npos) return "";
+        size_t last = str.find_last_not_of(" \t\n\r");
+        return str.substr(first, (last - first + 1));
+    }
+    
+    bool parseBool(const std::string& value) {
+        std::string v = trim(value);
+        return v == "true" || v == "yes" || v == "1" || v == "on";
+    }
+}
+
+void GCSFSConfig::loadDefaults() {
+    enable_stat_cache = true;
+    stat_cache_timeout = 60;
+    enable_file_content_cache = true;
+    debug_mode = false;
+    verbose_logging = false;
+    bucket_name = "";
+    mount_point = "";
+    fuse_args.clear();
+}
+
+bool GCSFSConfig::loadFromYAML(const std::string& config_path) {
+    std::ifstream file(config_path);
+    if (!file.is_open()) {
+        return false;  // File doesn't exist
+    }
+    
+    std::string line;
+    int line_num = 0;
+    
+    while (std::getline(file, line)) {
+        line_num++;
+        line = trim(line);
+        
+        // Skip empty lines and comments
+        if (line.empty() || line[0] == '#') continue;
+        
+        // Parse key: value
+        size_t colon = line.find(':');
+        if (colon == std::string::npos) {
+            throw std::runtime_error("Invalid YAML syntax at line " + std::to_string(line_num) + ": " + line);
+        }
+        
+        std::string key = trim(line.substr(0, colon));
+        std::string value = trim(line.substr(colon + 1));
+        
+        // Remove quotes if present
+        if (value.size() >= 2 && ((value.front() == '"' && value.back() == '"') || 
+                                   (value.front() == '\'' && value.back() == '\''))) {
+            value = value.substr(1, value.size() - 2);
+        }
+        
+        // Map keys to config fields
+        if (key == "bucket_name" || key == "bucket") {
+            bucket_name = value;
+        } else if (key == "mount_point" || key == "mount") {
+            mount_point = value;
+        } else if (key == "enable_stat_cache" || key == "stat_cache") {
+            enable_stat_cache = parseBool(value);
+        } else if (key == "stat_cache_timeout" || key == "stat_cache_ttl") {
+            stat_cache_timeout = std::stoi(value);
+        } else if (key == "enable_file_content_cache" || key == "file_cache") {
+            enable_file_content_cache = parseBool(value);
+        } else if (key == "debug" || key == "debug_mode") {
+            debug_mode = parseBool(value);
+        } else if (key == "verbose" || key == "verbose_logging") {
+            verbose_logging = parseBool(value);
+        }
+        // Ignore unknown keys for forward compatibility
+    }
+    
+    return true;
+}
+
+void GCSFSConfig::loadFromEnv() {
+    // Check for GCSFUSE_* environment variables
+    // Only override if bucket/mount not already set (allowing YAML to set them)
+    if (const char* bucket = std::getenv("GCSFUSE_BUCKET")) {
+        bucket_name = bucket;
+    }
+    if (const char* mount = std::getenv("GCSFUSE_MOUNT_POINT")) {
+        mount_point = mount;
+    }
+    if (const char* cache = std::getenv("GCSFUSE_STAT_CACHE")) {
+        enable_stat_cache = parseBool(cache);
+    }
+    if (const char* ttl = std::getenv("GCSFUSE_STAT_CACHE_TTL")) {
+        stat_cache_timeout = std::atoi(ttl);
+    }
+    if (const char* file_cache = std::getenv("GCSFUSE_FILE_CACHE")) {
+        enable_file_content_cache = parseBool(file_cache);
+    }
+    if (const char* debug = std::getenv("GCSFUSE_DEBUG")) {
+        debug_mode = parseBool(debug);
+    }
+    if (const char* verbose = std::getenv("GCSFUSE_VERBOSE")) {
+        verbose_logging = parseBool(verbose);
+    }
+}
+
+std::optional<std::string> GCSFSConfig::extractConfigPath(int argc, char* argv[]) {
+    for (int i = 1; i < argc; i++) {
+        std::string arg = argv[i];
+        if (arg == "--config" && i + 1 < argc) {
+            return std::string(argv[i + 1]);
+        }
+        if (arg.rfind("--config=", 0) == 0) {
+            return arg.substr(9);
+        }
+    }
+    return std::nullopt;
+}
+
+GCSFSConfig GCSFSConfig::load(int argc, char* argv[]) {
     GCSFSConfig config;
+    
+    // Step 1: Load defaults
+    config.loadDefaults();
+    
+    // Step 2: Check for --config flag and load YAML if present
+    auto config_path = extractConfigPath(argc, argv);
+    if (config_path) {
+        if (!config.loadFromYAML(*config_path)) {
+            throw std::runtime_error("Config file not found: " + *config_path);
+        }
+        if (config.debug_mode) {
+            std::cout << "[DEBUG] Loaded config from: " << *config_path << std::endl;
+        }
+    }
+    
+    // Step 3: Load from environment variables
+    config.loadFromEnv();
+    
+    // Step 4: Parse command-line arguments (highest priority)
+    config.parseFromArgs(argc, argv);
+    
+    // Step 5: Validate final configuration
+    config.validate();
+    
+    return config;
+}
+
+void GCSFSConfig::validate() const {
+    if (bucket_name.empty()) {
+        throw std::runtime_error("Bucket name is required (via config, env, or CLI)");
+    }
+    if (mount_point.empty()) {
+        throw std::runtime_error("Mount point is required (via config, env, or CLI)");
+    }
+    if (stat_cache_timeout < 0) {
+        throw std::runtime_error("stat_cache_timeout must be >= 0");
+    }
+}
+
+void GCSFSConfig::parseFromArgs(int argc, char* argv[]) {
     
     // Define long options
     static struct option long_options[] = {
+        {"config",                   required_argument, 0, 'c'},
         {"disable-stat-cache",        no_argument,       0, 's'},
         {"stat-cache-ttl",           required_argument, 0, 'T'},
         {"disable-file-cache",       no_argument,       0, 'f'},
@@ -36,42 +199,45 @@ GCSFSConfig GCSFSConfig::parseFromArgs(int argc, char* argv[]) {
     // Parse options
     while ((opt = getopt_long(argc, argv, "o:dfvFh", long_options, &option_index)) != -1) {
         switch (opt) {
+            case 'c':
+                // Config file already processed in load(), skip here
+                break;
             case 's':
-                config.enable_stat_cache = false;
+                enable_stat_cache = false;
                 break;
             case 'T':
-                config.stat_cache_timeout = atoi(optarg);
+                stat_cache_timeout = atoi(optarg);
                 break;
             case 'f':
                 // This could be -f for foreground (FUSE) or --disable-file-cache
                 // Check if it's from long option
                 if (option_index >= 0 && long_options[option_index].val == 'f') {
-                    config.enable_file_content_cache = false;
+                    enable_file_content_cache = false;
                 } else {
                     // It's FUSE -f flag, add to fuse_args
-                    config.fuse_args.push_back("-f");
+                    fuse_args.push_back("-f");
                 }
                 break;
             case 'F':
                 // --disable-file-content-cache
-                config.enable_file_content_cache = false;
+                enable_file_content_cache = false;
                 break;
             case 'd':
                 // Could be --debug or FUSE -d
                 if (option_index >= 0 && long_options[option_index].val == 'd') {
-                    config.debug_mode = true;
+                    debug_mode = true;
                 } else {
                     // FUSE -d flag
-                    config.fuse_args.push_back("-d");
+                    fuse_args.push_back("-d");
                 }
                 break;
             case 'v':
-                config.verbose_logging = true;
+                verbose_logging = true;
                 break;
             case 'o':
                 // FUSE -o option
-                config.fuse_args.push_back("-o");
-                config.fuse_args.push_back(optarg);
+                fuse_args.push_back("-o");
+                fuse_args.push_back(optarg);
                 break;
             case 'h':
                 printUsage(argv[0]);
@@ -89,32 +255,29 @@ GCSFSConfig GCSFSConfig::parseFromArgs(int argc, char* argv[]) {
         positional_args.push_back(argv[optind++]);
     }
     
-    // Validate positional arguments
-    if (positional_args.empty()) {
-        throw std::runtime_error("Missing required argument: bucket_name");
+    // Override with positional arguments if provided
+    if (!positional_args.empty()) {
+        bucket_name = positional_args[0];
     }
-    if (positional_args.size() < 2) {
-        throw std::runtime_error("Missing required argument: mount_point");
+    if (positional_args.size() >= 2) {
+        mount_point = positional_args[1];
     }
-    
-    config.bucket_name = positional_args[0];
-    config.mount_point = positional_args[1];
     
     // Any additional positional args go to FUSE
     for (size_t i = 2; i < positional_args.size(); i++) {
-        config.fuse_args.push_back(positional_args[i]);
+        fuse_args.push_back(positional_args[i]);
     }
-    
-    return config;
 }
 
 void GCSFSConfig::printUsage(const char* program_name) {
-    std::cout << "Usage: " << program_name << " <bucket_name> <mount_point> [options]\n\n";
+    std::cout << "Usage: " << program_name << " <bucket_name> <mount_point> [options]\n";
+    std::cout << "   or: " << program_name << " --config <config.yaml> [options]\n\n";
     std::cout << "Required arguments:\n";
     std::cout << "  bucket_name              GCS bucket name to mount\n";
     std::cout << "  mount_point              Directory to mount the filesystem\n\n";
     
     std::cout << "GCSFS options:\n";
+    std::cout << "  --config=FILE            Load configuration from YAML file\n";
     std::cout << "  --disable-stat-cache     Disable stat metadata cache (enabled by default)\n";
     std::cout << "  --stat-cache-ttl=N       Stat cache timeout in seconds (default: 60, 0=no timeout)\n";
     std::cout << "  --disable-file-cache     Disable file content cache (enabled by default)\n";
@@ -127,8 +290,22 @@ void GCSFSConfig::printUsage(const char* program_name) {
     std::cout << "  -d                       Enable FUSE debug output\n";
     std::cout << "  -o option                Mount options (e.g., -o allow_other)\n\n";
     
+    std::cout << "Environment variables:\n";
+    std::cout << "  GCSFUSE_BUCKET           Bucket name (overridden by CLI/config)\n";
+    std::cout << "  GCSFUSE_MOUNT_POINT      Mount point (overridden by CLI/config)\n";
+    std::cout << "  GCSFUSE_STAT_CACHE       Enable stat cache (true/false)\n";
+    std::cout << "  GCSFUSE_FILE_CACHE       Enable file cache (true/false)\n";
+    std::cout << "  GCSFUSE_DEBUG            Enable debug mode (true/false)\n\n";
+    
+    std::cout << "Configuration priority (highest to lowest):\n";
+    std::cout << "  1. Command-line arguments\n";
+    std::cout << "  2. Environment variables\n";
+    std::cout << "  3. YAML config file (--config)\n";
+    std::cout << "  4. Default values\n\n";
+    
     std::cout << "Examples:\n";
     std::cout << "  " << program_name << " my-bucket ~/mnt\n";
+    std::cout << "  " << program_name << " --config config.yaml\n";
     std::cout << "  " << program_name << " my-bucket ~/mnt --disable-stat-cache -f\n";
     std::cout << "  " << program_name << " my-bucket ~/mnt --debug -o allow_other\n";
 }

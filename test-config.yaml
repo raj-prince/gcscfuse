@@ -1,0 +1,8 @@
+# Test YAML config
+bucket_name: test-bucket
+mount_point: /tmp/test-mount
+enable_stat_cache: false
+stat_cache_timeout: 30
+enable_file_content_cache: false
+debug: true
+verbose: true

@@ -1,0 +1,19 @@
+# GCSFS Configuration File
+# You can use this config file with: ./gcscfuse --config config.yaml
+
+# Required: GCS bucket name
+bucket_name: my-bucket
+
+# Required: Mount point directory
+mount_point: /mnt/gcs
+
+# Stat cache settings
+enable_stat_cache: true
+stat_cache_timeout: 60  # seconds, 0 = no timeout
+
+# File content cache settings
+enable_file_content_cache: true
+
+# Logging settings
+debug: false
+verbose: false
