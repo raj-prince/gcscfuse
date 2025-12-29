@@ -9,12 +9,13 @@ GCSFSConfig GCSFSConfig::parseFromArgs(int argc, char* argv[]) {
     
     // Define long options
     static struct option long_options[] = {
-        {"disable-stat-cache",   no_argument,       0, 's'},
-        {"stat-cache-ttl",       required_argument, 0, 'T'},
-        {"disable-file-cache",   no_argument,       0, 'f'},
-        {"debug",                no_argument,       0, 'd'},
-        {"verbose",              no_argument,       0, 'v'},
-        {"help",                 no_argument,       0, 'h'},
+        {"disable-stat-cache",        no_argument,       0, 's'},
+        {"stat-cache-ttl",           required_argument, 0, 'T'},
+        {"disable-file-cache",       no_argument,       0, 'f'},
+        {"disable-file-content-cache",no_argument,       0, 'F'},
+        {"debug",                    no_argument,       0, 'd'},
+        {"verbose",                  no_argument,       0, 'v'},
+        {"help",                     no_argument,       0, 'h'},
         {0, 0, 0, 0}
     };
     
@@ -33,7 +34,7 @@ GCSFSConfig GCSFSConfig::parseFromArgs(int argc, char* argv[]) {
     }
     
     // Parse options
-    while ((opt = getopt_long(argc, argv, "o:dfvh", long_options, &option_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "o:dfvFh", long_options, &option_index)) != -1) {
         switch (opt) {
             case 's':
                 config.enable_stat_cache = false;
@@ -50,6 +51,10 @@ GCSFSConfig GCSFSConfig::parseFromArgs(int argc, char* argv[]) {
                     // It's FUSE -f flag, add to fuse_args
                     config.fuse_args.push_back("-f");
                 }
+                break;
+            case 'F':
+                // --disable-file-content-cache
+                config.enable_file_content_cache = false;
                 break;
             case 'd':
                 // Could be --debug or FUSE -d

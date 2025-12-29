@@ -6,11 +6,8 @@ GCSSDKClientImpl::GCSSDKClientImpl() : client_(gcs::Client()) {}
 
 GCSSDKClientImpl::GCSSDKClientImpl(const gcs::Client& client) : client_(client) {}
 
-gcs::ObjectReadStream GCSSDKClientImpl::ReadObject(
-    const std::string& bucket_name,
-    const std::string& object_name) const 
-{
-    return client_.ReadObject(bucket_name, object_name);
+gcs::ObjectReadStream GCSSDKClientImpl::ReadObject(const ReadObjectRequest& request) const {
+    return client_.ReadObject(request.bucket_name, request.object_name);
 }
 
 StatusOr<gcs::ObjectMetadata> GCSSDKClientImpl::GetObjectMetadata(

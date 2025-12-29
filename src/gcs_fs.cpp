@@ -75,14 +75,26 @@ const std::string& GCSFS::getFileContent(const std::string& path) const
         std::cout << "[DEBUG] Reading from GCS: " << object_name << std::endl;
     }
     
-    std::string content = gcs_client_.readObject(bucket_name_, object_name);
-    
+    gcscfuse::IGCSSDKClient::ReadObjectRequest req;
+    req.bucket_name = bucket_name_;
+    req.object_name = object_name;
+    // If you want a range read, set req.range = ... before calling this function
+
+    std::string content = gcs_client_.readObject(req);
+
     if (content.empty()) {
         std::cerr << "Error reading object: " << object_name << std::endl;
         static const std::string empty;
         return empty;
     }
-    
+
+    // Do not cache if this is a range read
+    if (req.range.has_value()) {
+        static thread_local std::string temp_content;
+        temp_content = std::move(content);
+        return temp_content;
+    }
+
     // Cache the content (if enabled)
     if (config_.enable_file_content_cache) {
         file_cache_[object_name] = content;
@@ -91,12 +103,10 @@ const std::string& GCSFS::getFileContent(const std::string& path) const
         }
         return file_cache_[object_name];
     } else {
-        // Store temporarily for this request
         static thread_local std::string temp_content;
         temp_content = std::move(content);
         return temp_content;
     }
-    return file_cache_[object_name];
 }
 
 bool GCSFS::isValidPath(const std::string& path) const
@@ -363,30 +373,52 @@ int GCSFS::read(const char *path, char *buf, size_t size, off_t offset,
     
     // Check write buffer first (for recently written data)
     auto wb_it = ptr->write_buffers_.find(object_name);
-    const std::string* content_ptr;
-    
     if (wb_it != ptr->write_buffers_.end()) {
-        content_ptr = &wb_it->second;
+        const std::string& content = wb_it->second;
         if (ptr->config_.debug_mode) {
             std::cout << "[DEBUG] Reading from write buffer: " << object_name << std::endl;
         }
-    } else {
-        content_ptr = &ptr->getFileContent(path);
-    }
-    
-    const auto& content = *content_ptr;
-    const auto len = content.length();
-    
-    if (static_cast<size_t>(offset) < len) {
-        if (offset + size > len) {
-            size = len - offset;
+        size_t len = content.length();
+        if (static_cast<size_t>(offset) < len) {
+            if (offset + size > len) {
+                size = len - offset;
+            }
+            memcpy(buf, content.c_str() + offset, size);
+        } else {
+            size = 0;
         }
-        memcpy(buf, content.c_str() + offset, size);
-    } else {
-        size = 0;
+        return static_cast<int>(size);
     }
-    
-    return static_cast<int>(size);
+
+    if (!ptr->config_.enable_file_content_cache) {
+        // Range read: pass offset/size to GCS
+        gcscfuse::IGCSSDKClient::ReadObjectRequest req;
+        req.bucket_name = ptr->bucket_name_;
+        req.object_name = object_name;
+        req.range = std::make_optional(std::make_pair(static_cast<std::int64_t>(offset), static_cast<std::int64_t>(offset + size)));
+        std::string content = ptr->gcs_client_.readObject(req);
+        size_t len = content.length();
+        if (len > 0) {
+            if (len < size) size = len;
+            memcpy(buf, content.c_str(), size);
+        } else {
+            size = 0;
+        }
+        return static_cast<int>(size);
+    } else {
+        // Cache is enabled. Use getFileContent which handles caching.
+        const std::string& content = ptr->getFileContent(path);
+        size_t len = content.length();
+        if (static_cast<size_t>(offset) < len) {
+            if (offset + size > len) {
+                size = len - offset;
+            }
+            memcpy(buf, content.c_str() + offset, size);
+        } else {
+            size = 0;
+        }
+        return static_cast<int>(size);
+    }
 }
 
 // ==================== Write Operations ====================

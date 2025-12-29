@@ -34,16 +34,12 @@ std::optional<ObjectMetadata> GCSClient::getObjectMetadata(
     }
 }
 
-std::string GCSClient::readObject(
-    const std::string& bucket_name,
-    const std::string& object_name) const 
-{
-    auto reader = sdk_client_->ReadObject(bucket_name, object_name);
+std::string GCSClient::readObject(const IGCSSDKClient::ReadObjectRequest& request) const {
+    auto reader = sdk_client_->ReadObject(request);
     if (!reader) {
         std::cerr << "Error reading object: " << reader.status().message() << std::endl;
         return "";
     }
-    
     std::string content{std::istreambuf_iterator<char>{reader}, {}};
     return content;
 }

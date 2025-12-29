@@ -17,7 +17,7 @@ public:
     MOCK_METHOD(
         gcs::ObjectReadStream,
         ReadObject,
-        (const std::string& bucket_name, const std::string& object_name),
+        (const gcscfuse::IGCSSDKClient::ReadObjectRequest& request),
         (const, override)
     );
     
@@ -106,24 +106,15 @@ TEST_F(GCSClientTest, GetObjectMetadata_NotFound) {
 
 // Test readObject - Error handling (tests error handling for failed streams)
 TEST_F(GCSClientTest, ReadObject_ErrorHandling) {
-    const std::string bucket = "test-bucket";
-    const std::string object = "test-object.txt";
-    
-    // Test that GCSClient correctly handles error streams from the SDK
-    // The actual stream reading is SDK responsibility and tested by Google
-    // We test that our error handling logic works correctly
-    
-    EXPECT_CALL(*mock_sdk_client_ptr, ReadObject(bucket, object))
-        .WillOnce(Invoke([](const std::string&, const std::string&) {
-            // Return a default-constructed stream which is invalid
-            // A default ObjectReadStream has no buffer and will fail status checks
-            return gcs::ObjectReadStream();
-        }));
-    
+    gcscfuse::IGCSSDKClient::ReadObjectRequest req;
+    req.bucket_name = "test-bucket";
+    req.object_name = "test-object.txt";
+
+    EXPECT_CALL(*mock_sdk_client_ptr, ReadObject(req))
+        .WillOnce(::testing::Return(gcs::ObjectReadStream()));
+
     gcscfuse::GCSClient client(std::move(mock_sdk_client));
-    std::string result = client.readObject(bucket, object);
-    
-    // Should return empty string on error
+    std::string result = client.readObject(req);
     EXPECT_EQ(result, "");
 }
 
@@ -188,6 +179,21 @@ TEST_F(GCSClientTest, DeleteObject_Failure) {
     bool result = client.deleteObject(bucket, object);
     
     EXPECT_FALSE(result);
+}
+
+// Test readObject with range option (now using ReadObjectRequest)
+TEST_F(GCSClientTest, ReadObject_WithRangeOption) {
+    gcscfuse::IGCSSDKClient::ReadObjectRequest req;
+    req.bucket_name = "test-bucket";
+    req.object_name = "test-object.txt";
+    // If you add range/options to the struct, set them here
+
+    EXPECT_CALL(*mock_sdk_client_ptr, ReadObject(req))
+        .WillOnce(::testing::Return(::testing::ByMove(gcs::ObjectReadStream())));
+
+    gcscfuse::GCSClient client(std::move(mock_sdk_client));
+    std::string result = client.readObject(req);
+    EXPECT_EQ(result, ""); // Default-constructed stream returns empty string
 }
 
 int main(int argc, char** argv) {

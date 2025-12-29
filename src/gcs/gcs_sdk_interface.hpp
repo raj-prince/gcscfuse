@@ -21,10 +21,20 @@ class IGCSSDKClient {
 public:
     virtual ~IGCSSDKClient() = default;
     
+    // Request struct for ReadObject
+    struct ReadObjectRequest {
+        std::string bucket_name;
+        std::string object_name;
+        // Optional range: [start, end) (inclusive, exclusive)
+        std::optional<std::pair<std::int64_t, std::int64_t>> range;
+
+        bool operator==(const ReadObjectRequest& other) const {
+            return bucket_name == other.bucket_name && object_name == other.object_name && range == other.range;
+        }
+    };
+
     // Read object - returns SDK's ObjectReadStream
-    virtual gcs::ObjectReadStream ReadObject(
-        const std::string& bucket_name,
-        const std::string& object_name) const = 0;
+    virtual gcs::ObjectReadStream ReadObject(const ReadObjectRequest& request) const = 0;
     
     // Get object metadata - returns SDK's StatusOr result
     virtual StatusOr<gcs::ObjectMetadata> GetObjectMetadata(
@@ -58,9 +68,7 @@ public:
     GCSSDKClientImpl();
     explicit GCSSDKClientImpl(const gcs::Client& client);
     
-    gcs::ObjectReadStream ReadObject(
-        const std::string& bucket_name,
-        const std::string& object_name) const override;
+    gcs::ObjectReadStream ReadObject(const ReadObjectRequest& request) const override;
     
     StatusOr<gcs::ObjectMetadata> GetObjectMetadata(
         const std::string& bucket_name,
