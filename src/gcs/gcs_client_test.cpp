@@ -186,7 +186,7 @@ TEST_F(GCSClientTest, ReadObject_WithRangeOption) {
     gcscfuse::IGCSSDKClient::ReadObjectRequest req;
     req.bucket_name = "test-bucket";
     req.object_name = "test-object.txt";
-    // If you add range/options to the struct, set them here
+    req.range = std::make_optional(std::make_pair(static_cast<std::int64_t>(0), static_cast<std::int64_t>(100)));
 
     EXPECT_CALL(*mock_sdk_client_ptr, ReadObject(req))
         .WillOnce(::testing::Return(::testing::ByMove(gcs::ObjectReadStream())));
