@@ -54,27 +54,23 @@ jobs:
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
       
-      - name: Install dependencies (via vcpkg.json manifest)
-        run: |
-          # Dependencies are automatically installed via vcpkg.json manifest
-          # during CMake configure step - no manual install needed
-          echo "Dependencies will be installed automatically from vcpkg.json"
-        timeout-minutes: 1
-      
       - name: Configure
         run: |
           mkdir -p build
           cd build
           cmake .. \
+            -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake \
             -DCMAKE_BUILD_TYPE=Release
         timeout-minutes: 60
         continue-on-error: false
+        env:
+          VCPKG_MAX_CONCURRENCY: 16
       
       - name: Build
         run: |
           cd build
-          make -j$(nproc)
+          ninja
         timeout-minutes: 15
       
       - name: Run unit tests

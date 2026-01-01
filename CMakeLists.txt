@@ -9,10 +9,15 @@
 # BUILD INSTRUCTIONS:
 #    cd /path/to/gcscfuse
 #    mkdir -p build && cd build
-#    cmake .. && make setup  # First time: downloads and sets up vcpkg + dependencies
+#    # First time: downloads and sets up vcpkg + dependencies
+#    export VCPKG_MAX_CONCURRENCY=$(nproc)
+#    cmake .. && make setup
 #    cmake ..                # Reconfigure after setup
-#    make build              # Build the binary
+#    make -j$(nproc) build   # Build the binary (parallel)
 #    make test               # Run unit tests
+#
+# FAST BUILD (with Ninja - recommended):
+#    cmake -G Ninja .. && ninja
 #
 # RUN INSTRUCTIONS:
 #    export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
