@@ -28,13 +28,19 @@ cmake .. && make setup
 This will:
 - Clone vcpkg if not present
 - Bootstrap vcpkg
-- Install all required C++ dependencies (google-cloud-cpp, gtest)
+- Install all required C++ dependencies automatically via **vcpkg.json manifest**
+  - google-cloud-cpp[storage]
+  - gtest
+  - yaml-cpp
 
 3. Configure and build:
 ```bash
-cmake .. -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_PREFIX_PATH=$HOME/vcpkg/installed/x64-linux
+# Dependencies are installed automatically during CMake configure via vcpkg.json
+cmake .. -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake
 make build
 ```
+
+**Note:** The vcpkg.json manifest approach automatically manages all dependencies during CMake configuration.
 
 ## Mount Filesystem
 

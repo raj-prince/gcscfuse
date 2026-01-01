@@ -9,10 +9,15 @@
 # BUILD INSTRUCTIONS:
 #    cd /path/to/gcscfuse
 #    mkdir -p build && cd build
-#    cmake .. && make setup  # First time: downloads and sets up vcpkg + dependencies
+#    # First time: downloads and sets up vcpkg + dependencies
+#    export VCPKG_MAX_CONCURRENCY=$(nproc)
+#    cmake .. && make setup
 #    cmake ..                # Reconfigure after setup
-#    make build              # Build the binary
+#    make -j$(nproc) build   # Build the binary (parallel)
 #    make test               # Run unit tests
+#
+# FAST BUILD (with Ninja - recommended):
+#    cmake -G Ninja .. && ninja
 #
 # RUN INSTRUCTIONS:
 #    export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
@@ -27,6 +32,7 @@ project(gcscfuse)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Enable testing
 enable_testing()
@@ -47,6 +53,9 @@ pkg_check_modules(FUSE REQUIRED fuse3)
 
 # Find google-cloud-cpp (vcpkg will provide this)
 find_package(google_cloud_cpp_storage REQUIRED)
+
+# Find yaml-cpp
+find_package(yaml-cpp REQUIRED)
 
 # Find Google Test and GMock
 find_package(GTest QUIET)
@@ -83,6 +92,7 @@ add_executable(gcscfuse
 target_link_libraries(gcscfuse 
     ${LIBS} 
     google-cloud-cpp::storage
+    yaml-cpp::yaml-cpp
 )
 
 # Create 'build' target as alias for main binary
@@ -104,6 +114,12 @@ if(GTest_FOUND OR GTEST_FOUND)
         src/gcs/gcs_sdk_interface.hpp
     )
     
+    add_executable(run_config_tests
+        src/config_test.cpp
+        src/config.cpp
+        src/config.hpp
+    )
+    
     if(GTest_FOUND)
         target_link_libraries(run_tests 
             GTest::gtest 
@@ -115,6 +131,12 @@ if(GTest_FOUND OR GTEST_FOUND)
             GTest::gtest_main
             GTest::gmock
             google-cloud-cpp::storage
+            pthread
+        )
+        target_link_libraries(run_config_tests
+            GTest::gtest
+            GTest::gtest_main
+            yaml-cpp::yaml-cpp
             pthread
         )
     else()
@@ -132,11 +154,19 @@ if(GTest_FOUND OR GTEST_FOUND)
             google-cloud-cpp::storage
             pthread
         )
+        target_include_directories(run_config_tests PRIVATE ${GTEST_INCLUDE_DIRS})
+        target_link_libraries(run_config_tests
+            ${GTEST_LIBRARIES}
+            ${GTEST_MAIN_LIBRARIES}
+            yaml-cpp
+            pthread
+        )
     endif()
     
     # Add tests to CTest
     add_test(NAME stat_cache_tests COMMAND run_tests)
     add_test(NAME gcs_client_tests COMMAND run_gcs_client_tests)
+    add_test(NAME config_tests COMMAND run_config_tests)
     
     # Make sure tests are built before running 'make test'
     add_custom_target(check 

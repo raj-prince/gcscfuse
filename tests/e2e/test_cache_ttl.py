@@ -31,16 +31,16 @@ def test_cache_ttl(bucket):
     test_file = "cache_ttl_test.txt"
     
     # Find the binary
-    if os.path.exists("./gcs_fs"):
-        binary = "./gcs_fs"
-    elif os.path.exists("../build/gcs_fs"):
-        binary = "../build/gcs_fs"
-    elif os.path.exists("./src/gcs_fs/build/gcs_fs"):
-        binary = "./src/gcs_fs/build/gcs_fs"
-    elif os.path.exists("/home/princer_google_com/dev/gcscfuse/src/gcs_fs/build/gcs_fs"):
-        binary = "/home/princer_google_com/dev/gcscfuse/src/gcs_fs/build/gcs_fs"
+    if os.path.exists("./gcscfuse"):
+        binary = "./gcscfuse"
+    elif os.path.exists("../build/gcscfuse"):
+        binary = "../build/gcscfuse"
+    elif os.path.exists("./build/gcscfuse"):
+        binary = "./build/gcscfuse"
+    elif os.path.exists("/home/princer_google_com/dev/gcscfuse/build/gcscfuse"):
+        binary = "/home/princer_google_com/dev/gcscfuse/build/gcscfuse"
     else:
-        raise FileNotFoundError("Cannot find gcs_fs binary")
+        raise FileNotFoundError("Cannot find gcscfuse binary")
     
     print("=" * 60)
     print("STAT CACHE TTL TEST")
@@ -189,6 +189,47 @@ def test_cache_ttl(bucket):
         proc.terminate()
         proc.wait(timeout=3)
         
+        # Test 4: Using config file
+        print("\n" + "=" * 60)
+        print("TEST 4: Using config file")
+        print("=" * 60)
+        
+        config_file = f"/tmp/gcsfuse_test_{os.getpid()}.yaml"
+        with open(config_file, 'w') as f:
+            f.write(f"""bucket_name: {bucket}
+mount_point: {mount_point}
+enable_stat_cache: true
+stat_cache_timeout: 3
+debug: true
+""")
+        
+        print(f"\n🚀 Starting filesystem with config file...")
+        proc = subprocess.Popen(
+            [binary, "--config", config_file, "-f"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+        time.sleep(2)
+        
+        print("\n[1] First stat (expect cache MISS):")
+        start = time.time()
+        os.stat(file_path)
+        elapsed = time.time() - start
+        print(f"    Time: {elapsed:.4f}s")
+        
+        time.sleep(0.2)
+        
+        print("\n[2] Second stat (expect cache HIT):")
+        start = time.time()
+        os.stat(file_path)
+        elapsed = time.time() - start
+        print(f"    Time: {elapsed:.4f}s")
+        
+        proc.terminate()
+        proc.wait(timeout=3)
+        os.unlink(config_file)
+        
         print("\n" + "=" * 60)
         print("✓ ALL TESTS COMPLETE")
         print("=" * 60)
@@ -197,6 +238,7 @@ def test_cache_ttl(bucket):
         print("           Stats #1 and #4 should be slower (GCS fetch)")
         print("  • Test 2: All stats should be slow (no cache)")
         print("  • Test 3: Cached stats should be <0.01s total for 10 operations")
+        print("  • Test 4: Config file should work same as command-line flags")
         
     except Exception as e:
         print(f"\n❌ Error: {e}")

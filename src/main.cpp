@@ -7,8 +7,8 @@
 int main(int argc, char *argv[])
 {
     try {
-        // Parse configuration from command-line arguments
-        GCSFSConfig config = GCSFSConfig::parseFromArgs(argc, argv);
+        // Load configuration from all sources (YAML, env, CLI)
+        GCSFSConfig config = GCSFSConfig::load(argc, argv);
         
         // Convert config back to FUSE arguments
         int fuse_argc;

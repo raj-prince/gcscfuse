@@ -1,0 +1,16 @@
+{
+  "name": "gcscfuse",
+  "version-string": "0.1.0",
+  "description": "Google Cloud Storage FUSE Filesystem",
+  "homepage": "https://github.com/princer/gcscfuse",
+  "license": "Apache-2.0",
+  "dependencies": [
+    {
+      "name": "google-cloud-cpp",
+      "features": ["storage"]
+    },
+    "gtest",
+    "yaml-cpp"
+  ],
+  "builtin-baseline": "14bb451131ccf6be50a63a8d9dfe7980e46b5958"
+}

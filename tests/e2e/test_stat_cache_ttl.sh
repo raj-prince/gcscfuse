@@ -107,6 +107,39 @@ time stat "$MOUNT_POINT/$TEST_FILE" > /dev/null
 fusermount -u "$MOUNT_POINT"
 wait $FUSE_PID 2>/dev/null || true
 
+echo -e "\n${GREEN}=== Test 4: Using Config File ===${NC}"
+echo "Creating temporary config file..."
+CONFIG_FILE="/tmp/gcsfuse_test_config_$$.yaml"
+cat > "$CONFIG_FILE" << EOF
+bucket_name: $BUCKET
+mount_point: $MOUNT_POINT
+enable_stat_cache: true
+stat_cache_timeout: 5
+debug: true
+EOF
+
+echo "Mounting with config file..."
+$BINARY --config "$CONFIG_FILE" -f &
+FUSE_PID=$!
+sleep 2  # Wait for mount
+
+echo -e "\n${YELLOW}First stat (cache miss):${NC}"
+time stat "$MOUNT_POINT/$TEST_FILE" > /dev/null
+
+echo -e "\n${YELLOW}Second stat (cache hit):${NC}"
+time stat "$MOUNT_POINT/$TEST_FILE" > /dev/null
+
+echo -e "\n${YELLOW}Waiting 6 seconds for TTL to expire...${NC}"
+sleep 6
+
+echo -e "\n${YELLOW}Third stat (cache expired):${NC}"
+time stat "$MOUNT_POINT/$TEST_FILE" > /dev/null
+
+# Unmount and cleanup
+fusermount -u "$MOUNT_POINT"
+wait $FUSE_PID 2>/dev/null || true
+rm -f "$CONFIG_FILE"
+
 # Cleanup test file
 echo -e "\n${YELLOW}Cleaning up test file from GCS...${NC}"
 gsutil rm "gs://${BUCKET}/${TEST_FILE}"
@@ -116,3 +149,4 @@ echo -e "Expected results:"
 echo -e "  - Test 1: First stat slow, 2nd-3rd fast (cached), 4th slow (expired), 5th fast"
 echo -e "  - Test 2: All stats slow (no cache)"
 echo -e "  - Test 3: First stat slow, 2nd fast even after 6 seconds (never expires)"
+echo -e "  - Test 4: Config file works same as command-line flags"
