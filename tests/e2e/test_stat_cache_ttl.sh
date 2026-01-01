@@ -43,7 +43,7 @@ echo -e "${GREEN}✓ Test file created${NC}\n"
 # Test 1: With cache enabled (TTL=5 seconds)
 echo -e "${GREEN}=== Test 1: With Cache (TTL=5 seconds) ===${NC}"
 echo "Mounting with cache enabled, TTL=5 seconds..."
-$BINARY "$BUCKET" "$MOUNT_POINT" --stat-cache-ttl=5 --debug -f &
+$BINARY "$BUCKET" "$MOUNT_POINT" --stat-cache-ttl=5 --debug &
 FUSE_PID=$!
 sleep 2  # Wait for mount
 
@@ -71,7 +71,7 @@ wait $FUSE_PID 2>/dev/null || true
 
 echo -e "\n${GREEN}=== Test 2: Without Cache ===${NC}"
 echo "Mounting with cache disabled..."
-$BINARY "$BUCKET" "$MOUNT_POINT" --disable-stat-cache --debug -f &
+$BINARY "$BUCKET" "$MOUNT_POINT" --disable-stat-cache --debug &
 FUSE_PID=$!
 sleep 2  # Wait for mount
 
@@ -90,7 +90,7 @@ wait $FUSE_PID 2>/dev/null || true
 
 echo -e "\n${GREEN}=== Test 3: With Long TTL (no expiration) ===${NC}"
 echo "Mounting with cache enabled, TTL=0 (never expires)..."
-$BINARY "$BUCKET" "$MOUNT_POINT" --stat-cache-ttl=0 --debug -f &
+$BINARY "$BUCKET" "$MOUNT_POINT" --stat-cache-ttl=0 --debug &
 FUSE_PID=$!
 sleep 2  # Wait for mount
 
