@@ -1,4 +1,5 @@
 #include "config.hpp"
+#include <yaml-cpp/yaml.h>
 #include <getopt.h>
 #include <iostream>
 #include <fstream>
@@ -8,17 +9,10 @@
 #include <stdexcept>
 #include <sys/stat.h>
 
-// Simple YAML parser for our limited config needs
 namespace {
-    std::string trim(const std::string& str) {
-        size_t first = str.find_first_not_of(" \t\n\r");
-        if (first == std::string::npos) return "";
-        size_t last = str.find_last_not_of(" \t\n\r");
-        return str.substr(first, (last - first + 1));
-    }
-    
     bool parseBool(const std::string& value) {
-        std::string v = trim(value);
+        std::string v = value;
+        std::transform(v.begin(), v.end(), v.begin(), ::tolower);
         return v == "true" || v == "yes" || v == "1" || v == "on";
     }
 }
@@ -35,56 +29,44 @@ void GCSFSConfig::loadDefaults() {
 }
 
 bool GCSFSConfig::loadFromYAML(const std::string& config_path) {
-    std::ifstream file(config_path);
-    if (!file.is_open()) {
+    try {
+        YAML::Node config = YAML::LoadFile(config_path);
+        
+        // Load YAML keys to config fields
+        if (config["bucket_name"]) {
+            bucket_name = config["bucket_name"].as<std::string>();
+        }
+        
+        if (config["mount_point"]) {
+            mount_point = config["mount_point"].as<std::string>();
+        }
+        
+        if (config["enable_stat_cache"]) {
+            enable_stat_cache = config["enable_stat_cache"].as<bool>();
+        }
+        
+        if (config["stat_cache_timeout"]) {
+            stat_cache_timeout = config["stat_cache_timeout"].as<int>();
+        }
+        
+        if (config["enable_file_content_cache"]) {
+            enable_file_content_cache = config["enable_file_content_cache"].as<bool>();
+        }
+        
+        if (config["debug"]) {
+            debug_mode = config["debug"].as<bool>();
+        }
+        
+        if (config["verbose"]) {
+            verbose_logging = config["verbose"].as<bool>();
+        }
+        
+        return true;
+    } catch (const YAML::BadFile&) {
         return false;  // File doesn't exist
+    } catch (const YAML::Exception& e) {
+        throw std::runtime_error("YAML parsing error: " + std::string(e.what()));
     }
-    
-    std::string line;
-    int line_num = 0;
-    
-    while (std::getline(file, line)) {
-        line_num++;
-        line = trim(line);
-        
-        // Skip empty lines and comments
-        if (line.empty() || line[0] == '#') continue;
-        
-        // Parse key: value
-        size_t colon = line.find(':');
-        if (colon == std::string::npos) {
-            throw std::runtime_error("Invalid YAML syntax at line " + std::to_string(line_num) + ": " + line);
-        }
-        
-        std::string key = trim(line.substr(0, colon));
-        std::string value = trim(line.substr(colon + 1));
-        
-        // Remove quotes if present
-        if (value.size() >= 2 && ((value.front() == '"' && value.back() == '"') || 
-                                   (value.front() == '\'' && value.back() == '\''))) {
-            value = value.substr(1, value.size() - 2);
-        }
-        
-        // Map keys to config fields
-        if (key == "bucket_name" || key == "bucket") {
-            bucket_name = value;
-        } else if (key == "mount_point" || key == "mount") {
-            mount_point = value;
-        } else if (key == "enable_stat_cache" || key == "stat_cache") {
-            enable_stat_cache = parseBool(value);
-        } else if (key == "stat_cache_timeout" || key == "stat_cache_ttl") {
-            stat_cache_timeout = std::stoi(value);
-        } else if (key == "enable_file_content_cache" || key == "file_cache") {
-            enable_file_content_cache = parseBool(value);
-        } else if (key == "debug" || key == "debug_mode") {
-            debug_mode = parseBool(value);
-        } else if (key == "verbose" || key == "verbose_logging") {
-            verbose_logging = parseBool(value);
-        }
-        // Ignore unknown keys for forward compatibility
-    }
-    
-    return true;
 }
 
 void GCSFSConfig::loadFromEnv() {

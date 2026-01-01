@@ -101,4 +101,39 @@ else
     exit 1
 fi
 
+# Unmount
+fusermount -u "$MOUNT_POINT"
+wait $GCSFUSE_PID 2>/dev/null || true
+
+# --- Test 3: Using Config File ---
+echo -e "\n${GREEN}=== Test 3: Using Config File ===${NC}"
+CONFIG_FILE="/tmp/gcsfuse_test_config_$$.yaml"
+cat > "$CONFIG_FILE" << EOF
+bucket_name: $BUCKET
+mount_point: $MOUNT_POINT
+enable_stat_cache: true
+enable_file_content_cache: true
+debug: true
+EOF
+
+echo "Mounting gcscfuse with config file..."
+$BINARY --config "$CONFIG_FILE" -f &
+GCSFUSE_PID=$!
+sleep 5
+
+echo "Reading file from mount point (with config file)..."
+READ_CONTENT_CONFIG=$(cat "$MOUNT_POINT/$TEST_FILE")
+
+if [ "$READ_CONTENT_CONFIG" == "$TEST_CONTENT" ]; then
+    echo -e "${GREEN}✅ Success: Read content matches original content (config file).${NC}"
+else
+    echo -e "${RED}❌ Failure: Read content does not match (config file).${NC}"
+    echo "Original: '$TEST_CONTENT'"
+    echo "Read:     '$READ_CONTENT_CONFIG'"
+    rm -f "$CONFIG_FILE"
+    exit 1
+fi
+
+rm -f "$CONFIG_FILE"
+
 echo -e "\n${GREEN}--- E2E Read Test Passed ---${NC}"

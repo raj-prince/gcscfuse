@@ -27,6 +27,7 @@ project(gcscfuse)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Enable testing
 enable_testing()
@@ -47,6 +48,9 @@ pkg_check_modules(FUSE REQUIRED fuse3)
 
 # Find google-cloud-cpp (vcpkg will provide this)
 find_package(google_cloud_cpp_storage REQUIRED)
+
+# Find yaml-cpp
+find_package(yaml-cpp REQUIRED)
 
 # Find Google Test and GMock
 find_package(GTest QUIET)
@@ -83,6 +87,7 @@ add_executable(gcscfuse
 target_link_libraries(gcscfuse 
     ${LIBS} 
     google-cloud-cpp::storage
+    yaml-cpp::yaml-cpp
 )
 
 # Create 'build' target as alias for main binary
@@ -126,6 +131,7 @@ if(GTest_FOUND OR GTEST_FOUND)
         target_link_libraries(run_config_tests
             GTest::gtest
             GTest::gtest_main
+            yaml-cpp::yaml-cpp
             pthread
         )
     else()
@@ -147,6 +153,7 @@ if(GTest_FOUND OR GTEST_FOUND)
         target_link_libraries(run_config_tests
             ${GTEST_LIBRARIES}
             ${GTEST_MAIN_LIBRARIES}
+            yaml-cpp
             pthread
         )
     endif()

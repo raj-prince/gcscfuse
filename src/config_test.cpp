@@ -102,33 +102,6 @@ verbose: true
     EXPECT_TRUE(config.verbose_logging);
 }
 
-// Test YAML loading - alternative key names
-TEST_F(ConfigTest, LoadFromYAML_AlternativeKeys) {
-    std::string yaml_content = R"(
-bucket: my-bucket
-mount: /tmp/mount
-stat_cache: true
-stat_cache_ttl: 120
-file_cache: true
-debug_mode: false
-verbose_logging: false
-)";
-    
-    std::string yaml_file = createTestYAML(yaml_content);
-    
-    GCSFSConfig config;
-    config.loadDefaults();
-    EXPECT_TRUE(config.loadFromYAML(yaml_file));
-    
-    EXPECT_EQ(config.bucket_name, "my-bucket");
-    EXPECT_EQ(config.mount_point, "/tmp/mount");
-    EXPECT_TRUE(config.enable_stat_cache);
-    EXPECT_EQ(config.stat_cache_timeout, 120);
-    EXPECT_TRUE(config.enable_file_content_cache);
-    EXPECT_FALSE(config.debug_mode);
-    EXPECT_FALSE(config.verbose_logging);
-}
-
 // Test YAML loading - quoted values
 TEST_F(ConfigTest, LoadFromYAML_QuotedValues) {
     std::string yaml_content = R"(
@@ -376,6 +349,251 @@ stat_cache_timeout: 30
     EXPECT_EQ(config.stat_cache_timeout, 99);         // From Env (YAML value gets overridden by env)
     EXPECT_FALSE(config.enable_stat_cache);           // From Env
     EXPECT_TRUE(config.debug_mode);                   // From CLI
+}
+
+// Test adding new config fields - unknown fields should be ignored gracefully
+TEST_F(ConfigTest, LoadFromYAML_UnknownFieldsIgnored) {
+    std::string yaml_content = R"(
+bucket_name: test-bucket
+mount_point: /mnt/test
+unknown_field: some_value
+future_feature: true
+another_unknown: 123
+enable_stat_cache: true
+)";
+    
+    std::string yaml_file = createTestYAML(yaml_content);
+    
+    GCSFSConfig config;
+    config.loadDefaults();
+    
+    // Should not throw and should load known fields correctly
+    EXPECT_NO_THROW(config.loadFromYAML(yaml_file));
+    EXPECT_EQ(config.bucket_name, "test-bucket");
+    EXPECT_EQ(config.mount_point, "/mnt/test");
+    EXPECT_TRUE(config.enable_stat_cache);
+}
+
+// Test adding new config fields - mixed with valid and invalid keys
+TEST_F(ConfigTest, LoadFromYAML_MixedKnownUnknownFields) {
+    std::string yaml_content = R"(
+# Known fields
+bucket_name: my-bucket
+mount_point: /mnt/gcs
+enable_stat_cache: false
+stat_cache_timeout: 45
+
+# Unknown/future fields that should be ignored
+max_connections: 100
+retry_policy: exponential
+timeout_ms: 5000
+custom_metadata:
+  key1: value1
+  key2: value2
+)";
+    
+    std::string yaml_file = createTestYAML(yaml_content);
+    
+    GCSFSConfig config;
+    config.loadDefaults();
+    EXPECT_TRUE(config.loadFromYAML(yaml_file));
+    
+    // Verify known fields are loaded correctly
+    EXPECT_EQ(config.bucket_name, "my-bucket");
+    EXPECT_EQ(config.mount_point, "/mnt/gcs");
+    EXPECT_FALSE(config.enable_stat_cache);
+    EXPECT_EQ(config.stat_cache_timeout, 45);
+    
+    // Verify defaults remain for unset fields
+    EXPECT_TRUE(config.enable_file_content_cache);  // Default value
+}
+
+// Test adding new config fields - empty YAML file
+TEST_F(ConfigTest, LoadFromYAML_EmptyFile) {
+    std::string yaml_content = "";
+    std::string yaml_file = createTestYAML(yaml_content);
+    
+    GCSFSConfig config;
+    config.loadDefaults();
+    
+    // Empty YAML should load successfully and keep defaults
+    EXPECT_TRUE(config.loadFromYAML(yaml_file));
+    EXPECT_TRUE(config.bucket_name.empty());
+    EXPECT_TRUE(config.enable_stat_cache);
+    EXPECT_EQ(config.stat_cache_timeout, 60);
+}
+
+// Test adding new config fields - YAML with only comments
+TEST_F(ConfigTest, LoadFromYAML_OnlyComments) {
+    std::string yaml_content = R"(
+# This is a comment
+# Another comment
+# No actual configuration
+)";
+    std::string yaml_file = createTestYAML(yaml_content);
+    
+    GCSFSConfig config;
+    config.loadDefaults();
+    
+    EXPECT_TRUE(config.loadFromYAML(yaml_file));
+    EXPECT_TRUE(config.bucket_name.empty());
+    EXPECT_TRUE(config.enable_stat_cache);
+}
+
+// Test adding new config fields - partial configuration
+TEST_F(ConfigTest, LoadFromYAML_PartialConfig) {
+    std::string yaml_content = R"(
+bucket_name: partial-bucket
+stat_cache_timeout: 90
+)";
+    std::string yaml_file = createTestYAML(yaml_content);
+    
+    GCSFSConfig config;
+    config.loadDefaults();
+    EXPECT_TRUE(config.loadFromYAML(yaml_file));
+    
+    // Specified fields should be set
+    EXPECT_EQ(config.bucket_name, "partial-bucket");
+    EXPECT_EQ(config.stat_cache_timeout, 90);
+    
+    // Unspecified fields should retain defaults
+    EXPECT_TRUE(config.mount_point.empty());
+    EXPECT_TRUE(config.enable_stat_cache);  // Default
+    EXPECT_TRUE(config.enable_file_content_cache);  // Default
+    EXPECT_FALSE(config.debug_mode);  // Default
+}
+
+// Test adding new config fields - all fields specified
+TEST_F(ConfigTest, LoadFromYAML_AllFieldsSpecified) {
+    std::string yaml_content = R"(
+bucket_name: complete-bucket
+mount_point: /mnt/complete
+enable_stat_cache: false
+stat_cache_timeout: 120
+enable_file_content_cache: false
+debug: true
+verbose: true
+)";
+    std::string yaml_file = createTestYAML(yaml_content);
+    
+    GCSFSConfig config;
+    config.loadDefaults();
+    EXPECT_TRUE(config.loadFromYAML(yaml_file));
+    
+    // All fields should be set from YAML
+    EXPECT_EQ(config.bucket_name, "complete-bucket");
+    EXPECT_EQ(config.mount_point, "/mnt/complete");
+    EXPECT_FALSE(config.enable_stat_cache);
+    EXPECT_EQ(config.stat_cache_timeout, 120);
+    EXPECT_FALSE(config.enable_file_content_cache);
+    EXPECT_TRUE(config.debug_mode);
+    EXPECT_TRUE(config.verbose_logging);
+}
+
+// Test adding new config fields - boundary values
+TEST_F(ConfigTest, LoadFromYAML_BoundaryValues) {
+    std::string yaml_content = R"(
+bucket_name: ""
+mount_point: /
+stat_cache_timeout: 0
+)";
+    std::string yaml_file = createTestYAML(yaml_content);
+    
+    GCSFSConfig config;
+    config.loadDefaults();
+    EXPECT_TRUE(config.loadFromYAML(yaml_file));
+    
+    EXPECT_TRUE(config.bucket_name.empty());
+    EXPECT_EQ(config.mount_point, "/");
+    EXPECT_EQ(config.stat_cache_timeout, 0);
+}
+
+// Test adding new config fields - special characters in values
+TEST_F(ConfigTest, LoadFromYAML_SpecialCharacters) {
+    std::string yaml_content = R"(
+bucket_name: "bucket-with-dashes_and_underscores.dots"
+mount_point: "/mnt/path/with spaces/and-special@chars"
+)";
+    std::string yaml_file = createTestYAML(yaml_content);
+    
+    GCSFSConfig config;
+    config.loadDefaults();
+    EXPECT_TRUE(config.loadFromYAML(yaml_file));
+    
+    EXPECT_EQ(config.bucket_name, "bucket-with-dashes_and_underscores.dots");
+    EXPECT_EQ(config.mount_point, "/mnt/path/with spaces/and-special@chars");
+}
+
+// Test adding new config fields - integer edge cases
+TEST_F(ConfigTest, LoadFromYAML_IntegerEdgeCases) {
+    std::string yaml_content = R"(
+bucket_name: test-bucket
+mount_point: /mnt/test
+stat_cache_timeout: 2147483647
+)";
+    std::string yaml_file = createTestYAML(yaml_content);
+    
+    GCSFSConfig config;
+    config.loadDefaults();
+    EXPECT_TRUE(config.loadFromYAML(yaml_file));
+    
+    EXPECT_EQ(config.stat_cache_timeout, 2147483647);
+}
+
+// Test adding new config fields - malformed boolean should throw
+TEST_F(ConfigTest, LoadFromYAML_MalformedBoolean) {
+    std::string yaml_content = R"(
+bucket_name: test-bucket
+enable_stat_cache: not_a_boolean
+)";
+    std::string yaml_file = createTestYAML(yaml_content);
+    
+    GCSFSConfig config;
+    config.loadDefaults();
+    
+    // Should throw because YAML-cpp can't parse "not_a_boolean" as bool
+    EXPECT_THROW(config.loadFromYAML(yaml_file), std::runtime_error);
+}
+
+// Test adding new config fields - malformed integer should throw
+TEST_F(ConfigTest, LoadFromYAML_MalformedInteger) {
+    std::string yaml_content = R"(
+bucket_name: test-bucket
+stat_cache_timeout: not_a_number
+)";
+    std::string yaml_file = createTestYAML(yaml_content);
+    
+    GCSFSConfig config;
+    config.loadDefaults();
+    
+    // Should throw because YAML-cpp can't parse "not_a_number" as int
+    EXPECT_THROW(config.loadFromYAML(yaml_file), std::runtime_error);
+}
+
+// Test new config fields override defaults correctly
+TEST_F(ConfigTest, LoadFromYAML_NewFieldsOverrideDefaults) {
+    std::string yaml_content = R"(
+enable_stat_cache: false
+stat_cache_timeout: 0
+enable_file_content_cache: false
+)";
+    std::string yaml_file = createTestYAML(yaml_content);
+    
+    GCSFSConfig config;
+    config.loadDefaults();
+    
+    // Verify defaults first
+    EXPECT_TRUE(config.enable_stat_cache);
+    EXPECT_EQ(config.stat_cache_timeout, 60);
+    EXPECT_TRUE(config.enable_file_content_cache);
+    
+    // Load YAML
+    EXPECT_TRUE(config.loadFromYAML(yaml_file));
+    
+    // Verify YAML overrides defaults
+    EXPECT_FALSE(config.enable_stat_cache);
+    EXPECT_EQ(config.stat_cache_timeout, 0);
+    EXPECT_FALSE(config.enable_file_content_cache);
 }
 
 int main(int argc, char** argv) {
