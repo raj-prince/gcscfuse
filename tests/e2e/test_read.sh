@@ -60,9 +60,8 @@ echo -n "$TEST_CONTENT" | gcloud storage cp - "gs://$BUCKET/$TEST_FILE"
 # --- Test 1: With Cache Enabled ---
 echo -e "\n${GREEN}=== Test 1: With Cache Enabled ===${NC}"
 echo "Mounting gcscfuse with default cache settings..."
-$BINARY "$BUCKET" "$MOUNT_POINT" --debug &
-GCSFUSE_PID=$!
-sleep 8 # Give it more time to mount
+$BINARY "$BUCKET" "$MOUNT_POINT" --debug
+sleep 5 # Give it a moment to mount
 
 # Read the file and verify content
 echo "Reading file from mount point (with cache)..."
@@ -79,15 +78,13 @@ fi
 
 # Unmount
 fusermount -u "$MOUNT_POINT"
-wait $GCSFUSE_PID 2>/dev/null || true
 
 # --- Test 2: With Cache Disabled ---
 echo -e "\n${GREEN}=== Test 2: With Cache Disabled ===${NC}"
 echo "Mounting gcscfuse with caches disabled..."
 # Mount with caches disabled
-$BINARY "$BUCKET" "$MOUNT_POINT" --debug --disable-stat-cache --disable-file-content-cache &
-GCSFUSE_PID=$!
-sleep 8
+$BINARY "$BUCKET" "$MOUNT_POINT" --debug --disable-stat-cache --disable-file-content-cache
+sleep 5
 
 echo "Reading file from mount point (no cache)..."
 READ_CONTENT_NOCACHE=$(cat "$MOUNT_POINT/$TEST_FILE")
@@ -103,7 +100,6 @@ fi
 
 # Unmount
 fusermount -u "$MOUNT_POINT"
-wait $GCSFUSE_PID 2>/dev/null || true
 
 # --- Test 3: Using Config File ---
 echo -e "\n${GREEN}=== Test 3: Using Config File ===${NC}"
@@ -117,8 +113,7 @@ debug: true
 EOF
 
 echo "Mounting gcscfuse with config file..."
-$BINARY --config "$CONFIG_FILE" -f &
-GCSFUSE_PID=$!
+$BINARY --config "$CONFIG_FILE"
 sleep 5
 
 echo "Reading file from mount point (with config file)..."

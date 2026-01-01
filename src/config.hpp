@@ -21,6 +21,9 @@ struct GCSFSConfig {
     // File content cache settings
     bool enable_file_content_cache = true;
     
+    // Testing settings
+    bool enable_dummy_reader = false;
+    
     // Logging settings
     bool debug_mode = false;
     bool verbose_logging = false;

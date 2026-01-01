@@ -43,8 +43,7 @@ echo -e "${GREEN}✓ Test file created${NC}\n"
 # Test 1: With cache enabled (TTL=5 seconds)
 echo -e "${GREEN}=== Test 1: With Cache (TTL=5 seconds) ===${NC}"
 echo "Mounting with cache enabled, TTL=5 seconds..."
-$BINARY "$BUCKET" "$MOUNT_POINT" --stat-cache-ttl=5 --debug &
-FUSE_PID=$!
+$BINARY "$BUCKET" "$MOUNT_POINT" --stat-cache-ttl=5 --debug
 sleep 2  # Wait for mount
 
 echo -e "\n${YELLOW}First stat (cache miss - will fetch from GCS):${NC}"
@@ -67,12 +66,10 @@ time stat "$MOUNT_POINT/$TEST_FILE" > /dev/null
 
 # Unmount
 fusermount -u "$MOUNT_POINT"
-wait $FUSE_PID 2>/dev/null || true
 
 echo -e "\n${GREEN}=== Test 2: Without Cache ===${NC}"
 echo "Mounting with cache disabled..."
-$BINARY "$BUCKET" "$MOUNT_POINT" --disable-stat-cache --debug &
-FUSE_PID=$!
+$BINARY "$BUCKET" "$MOUNT_POINT" --disable-stat-cache --debug
 sleep 2  # Wait for mount
 
 echo -e "\n${YELLOW}First stat (no cache - always fetches from GCS):${NC}"
@@ -86,12 +83,10 @@ time stat "$MOUNT_POINT/$TEST_FILE" > /dev/null
 
 # Unmount
 fusermount -u "$MOUNT_POINT"
-wait $FUSE_PID 2>/dev/null || true
 
 echo -e "\n${GREEN}=== Test 3: With Long TTL (no expiration) ===${NC}"
 echo "Mounting with cache enabled, TTL=0 (never expires)..."
-$BINARY "$BUCKET" "$MOUNT_POINT" --stat-cache-ttl=0 --debug &
-FUSE_PID=$!
+$BINARY "$BUCKET" "$MOUNT_POINT" --stat-cache-ttl=0 --debug
 sleep 2  # Wait for mount
 
 echo -e "\n${YELLOW}First stat (cache miss):${NC}"
@@ -105,7 +100,6 @@ time stat "$MOUNT_POINT/$TEST_FILE" > /dev/null
 
 # Unmount
 fusermount -u "$MOUNT_POINT"
-wait $FUSE_PID 2>/dev/null || true
 
 echo -e "\n${GREEN}=== Test 4: Using Config File ===${NC}"
 echo "Creating temporary config file..."
@@ -137,7 +131,6 @@ time stat "$MOUNT_POINT/$TEST_FILE" > /dev/null
 
 # Unmount and cleanup
 fusermount -u "$MOUNT_POINT"
-wait $FUSE_PID 2>/dev/null || true
 rm -f "$CONFIG_FILE"
 
 # Cleanup test file

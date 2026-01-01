@@ -206,6 +206,7 @@ endif()
 add_custom_target(e2e
     COMMAND ${CMAKE_COMMAND} -E env BUCKET=${BUCKET} bash ${CMAKE_SOURCE_DIR}/tests/e2e/test_stat_cache_ttl.sh
     COMMAND ${CMAKE_COMMAND} -E env BUCKET=${BUCKET} bash ${CMAKE_SOURCE_DIR}/tests/e2e/test_read.sh
+    COMMAND bash ${CMAKE_SOURCE_DIR}/test_dummy_reader.sh
     DEPENDS gcscfuse
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     COMMENT "Running E2E tests..."

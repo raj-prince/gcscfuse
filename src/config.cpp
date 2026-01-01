@@ -158,6 +158,7 @@ void GCSFSConfig::parseFromArgs(int argc, char* argv[]) {
         {"stat-cache-ttl",           required_argument, 0, 'T'},
         {"disable-file-cache",       no_argument,       0, 'f'},
         {"disable-file-content-cache",no_argument,       0, 'F'},
+        {"enable-dummy-reader",      no_argument,       0, 'D'},
         {"debug",                    no_argument,       0, 'd'},
         {"verbose",                  no_argument,       0, 'v'},
         {"help",                     no_argument,       0, 'h'},
@@ -203,6 +204,10 @@ void GCSFSConfig::parseFromArgs(int argc, char* argv[]) {
             case 'F':
                 // --disable-file-content-cache
                 enable_file_content_cache = false;
+                break;
+            case 'D':
+                // --enable-dummy-reader
+                enable_dummy_reader = true;
                 break;
             case 'd':
                 // Could be --debug or FUSE -d
@@ -263,6 +268,7 @@ void GCSFSConfig::printUsage(const char* program_name) {
     std::cout << "  --disable-stat-cache     Disable stat metadata cache (enabled by default)\n";
     std::cout << "  --stat-cache-ttl=N       Stat cache timeout in seconds (default: 60, 0=no timeout)\n";
     std::cout << "  --disable-file-cache     Disable file content cache (enabled by default)\n";
+    std::cout << "  --enable-dummy-reader    Use dummy reader for testing (returns zeros)\n";
     std::cout << "  --debug                  Enable debug logging\n";
     std::cout << "  --verbose                Enable verbose output\n";
     std::cout << "  --help                   Display this help message\n\n";

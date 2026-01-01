@@ -41,22 +41,33 @@ GCSFS::GCSFS(const std::string& bucket_name, const GCSFSConfig& config)
             std::cout << "[DEBUG] Stat cache TTL: " << config_.stat_cache_timeout << " seconds" << std::endl;
         }
         std::cout << "[DEBUG] File content cache: " << (config_.enable_file_content_cache ? "enabled" : "disabled") << std::endl;
+        if (config_.enable_dummy_reader) {
+            std::cout << "[DEBUG] Using dummy reader (returns zeros)" << std::endl;
+        }
     }
     stat_cache_.setCacheTimeout(config_.stat_cache_timeout);
     
     // Initialize reader based on configuration
-    auto gcs_reader = std::make_unique<gcscfuse::GCSDirectReader>(
-        bucket_name_, 
-        gcs_client_, 
-        config_.debug_mode);
+    std::unique_ptr<gcscfuse::IReader> base_reader;
+    
+    if (config_.enable_dummy_reader) {
+        // Use dummy reader for testing
+        base_reader = std::make_unique<gcscfuse::DummyReader>();
+    } else {
+        // Use GCS reader
+        base_reader = std::make_unique<gcscfuse::GCSDirectReader>(
+            bucket_name_, 
+            gcs_client_, 
+            config_.debug_mode);
+    }
     
     if (config_.enable_file_content_cache) {
         reader_ = std::make_unique<gcscfuse::CachedReader>(
-            std::move(gcs_reader),
+            std::move(base_reader),
             config_.debug_mode,
             config_.verbose_logging);
     } else {
-        reader_ = std::move(gcs_reader);
+        reader_ = std::move(base_reader);
     }
 }
 
