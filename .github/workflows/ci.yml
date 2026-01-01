@@ -43,6 +43,8 @@ jobs:
         run: |
           git clone https://github.com/microsoft/vcpkg $HOME/vcpkg
           cd $HOME/vcpkg
+          # Checkout specific baseline version from vcpkg.json
+          git checkout 14bb451131ccf6be50a63a8d9dfe7980e46b5958
           ./bootstrap-vcpkg.sh
       
       - name: Export GitHub Actions cache
@@ -52,13 +54,12 @@ jobs:
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
       
-      - name: Install dependencies
+      - name: Install dependencies (via vcpkg.json manifest)
         run: |
-          cd $HOME/vcpkg
-          export VCPKG_MAX_CONCURRENCY=4
-          $HOME/vcpkg/vcpkg install google-cloud-cpp[core,storage]:x64-linux gtest:x64-linux --recurse || exit 1
-        timeout-minutes: 60
-        continue-on-error: false
+          # Dependencies are automatically installed via vcpkg.json manifest
+          # during CMake configure step - no manual install needed
+          echo "Dependencies will be installed automatically from vcpkg.json"
+        timeout-minutes: 1
       
       - name: Configure
         run: |
@@ -66,9 +67,8 @@ jobs:
           cd build
           cmake .. \
             -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake \
-            -DCMAKE_PREFIX_PATH=$HOME/vcpkg/installed/x64-linux \
             -DCMAKE_BUILD_TYPE=Release
-        timeout-minutes: 10
+        timeout-minutes: 60
         continue-on-error: false
       
       - name: Build
