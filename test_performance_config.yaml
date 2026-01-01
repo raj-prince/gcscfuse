@@ -1,0 +1,12 @@
+bucket_name: test-bucket
+mount_point: /tmp/test
+enable_stat_cache: true
+stat_cache_timeout: 30
+enable_file_content_cache: true
+debug: true
+
+# FUSE Performance Settings
+max_background: 24
+congestion_threshold: 18
+async_read: false
+max_readahead: 524288

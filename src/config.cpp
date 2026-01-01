@@ -21,6 +21,11 @@ void GCSFSConfig::loadDefaults() {
     enable_stat_cache = true;
     stat_cache_timeout = 60;
     enable_file_content_cache = true;
+    enable_dummy_reader = false;
+    max_background = 12;
+    congestion_threshold = 9;
+    async_read = true;
+    max_readahead = 0;
     debug_mode = false;
     verbose_logging = false;
     bucket_name = "";
@@ -59,6 +64,22 @@ bool GCSFSConfig::loadFromYAML(const std::string& config_path) {
         
         if (config["verbose"]) {
             verbose_logging = config["verbose"].as<bool>();
+        }
+        
+        if (config["max_background"]) {
+            max_background = config["max_background"].as<int>();
+        }
+        
+        if (config["congestion_threshold"]) {
+            congestion_threshold = config["congestion_threshold"].as<int>();
+        }
+        
+        if (config["async_read"]) {
+            async_read = config["async_read"].as<bool>();
+        }
+        
+        if (config["max_readahead"]) {
+            max_readahead = config["max_readahead"].as<int>();
         }
         
         return true;
@@ -159,6 +180,10 @@ void GCSFSConfig::parseFromArgs(int argc, char* argv[]) {
         {"disable-file-cache",       no_argument,       0, 'f'},
         {"disable-file-content-cache",no_argument,       0, 'F'},
         {"enable-dummy-reader",      no_argument,       0, 'D'},
+        {"max-background",           required_argument, 0, 'B'},
+        {"congestion-threshold",     required_argument, 0, 'C'},
+        {"disable-async-read",       no_argument,       0, 'A'},
+        {"max-readahead",            required_argument, 0, 'R'},
         {"debug",                    no_argument,       0, 'd'},
         {"verbose",                  no_argument,       0, 'v'},
         {"help",                     no_argument,       0, 'h'},
@@ -208,6 +233,22 @@ void GCSFSConfig::parseFromArgs(int argc, char* argv[]) {
             case 'D':
                 // --enable-dummy-reader
                 enable_dummy_reader = true;
+                break;
+            case 'B':
+                // --max-background
+                max_background = atoi(optarg);
+                break;
+            case 'C':
+                // --congestion-threshold
+                congestion_threshold = atoi(optarg);
+                break;
+            case 'A':
+                // --disable-async-read
+                async_read = false;
+                break;
+            case 'R':
+                // --max-readahead
+                max_readahead = atoi(optarg);
                 break;
             case 'd':
                 // Could be --debug or FUSE -d
@@ -272,6 +313,12 @@ void GCSFSConfig::printUsage(const char* program_name) {
     std::cout << "  --debug                  Enable debug logging\n";
     std::cout << "  --verbose                Enable verbose output\n";
     std::cout << "  --help                   Display this help message\n\n";
+    
+    std::cout << "FUSE performance options:\n";
+    std::cout << "  --max-background=N       Max number of async requests (default: 12)\n";
+    std::cout << "  --congestion-threshold=N Congestion control threshold (default: 9)\n";
+    std::cout << "  --disable-async-read     Disable async read operations\n";
+    std::cout << "  --max-readahead=N        Max kernel readahead in KB (default: 0=system default)\n\n";
     
     std::cout << "FUSE options:\n";
     std::cout << "  -f                       Run in foreground\n";

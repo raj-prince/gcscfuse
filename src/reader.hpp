@@ -177,7 +177,7 @@ private:
 // Dummy reader - returns zeros up to a fixed size for testing
 class DummyReader : public IReader {
 public:
-    DummyReader(size_t max_size = 1024 * 1024) : max_size_(max_size) {}
+    DummyReader(size_t max_size = 100 * 1024 * 1024) : max_size_(max_size) {}
     
     int read(const std::string& object_name, 
              char* buf, 

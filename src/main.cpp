@@ -3,6 +3,8 @@
 #include "gcs_fs.hpp"
 #include "config.hpp"
 #include <iostream>
+#include <thread>
+#include <chrono>
 
 int main(int argc, char *argv[])
 {
@@ -17,6 +19,15 @@ int main(int argc, char *argv[])
         
         // Create and run filesystem
         GCSFS fs(config.bucket_name, config);
+        
+        // Launch kernel read-ahead configuration in background after mount completes
+        // This runs async and waits for mount to be confirmed before configuring
+        if (config.max_readahead > 0) {
+            std::thread([&fs]() {
+                fs.configureKernelReadAhead();
+            }).detach();
+        }
+        
         const auto status = fs.run(fuse_argc, fuse_argv);
         
         // Clean up allocated arguments

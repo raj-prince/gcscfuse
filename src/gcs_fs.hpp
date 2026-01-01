@@ -41,10 +41,19 @@ public:
     static int flush(const char *path, struct fuse_file_info *fi);
     static int release(const char *path, struct fuse_file_info *fi);
     static int unlink(const char *path);
+    
+    // FUSE lifecycle
+    static void* init(struct fuse_conn_info *conn, struct fuse_config *cfg);
+    
+    // Override run to set kernel read-ahead after mount completes
+    int run(int argc, char **argv) override;
 
     // Accessors
     const std::string& bucketName() const { return bucket_name_; }
     const std::string& rootPath() const { return root_path_; }
+    
+    // Configure kernel read-ahead after mount (called from main.cpp)
+    void configureKernelReadAhead() const;
 
 private:
     std::string bucket_name_;

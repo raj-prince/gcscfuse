@@ -105,13 +105,24 @@ std::vector<ObjectMetadata> GCSClient::listObjects(
         req.delimiter = delimiter;
         req.max_results = max_results;
         
+        std::cerr << "[GCS] Listing objects: bucket=" << bucket_name 
+                  << ", prefix='" << prefix << "', delimiter='" << delimiter << "'" << std::endl;
+        
         auto objects = sdk_client_->ListObjects(req);
         
+        int count = 0;
         for (auto&& object_metadata : objects) {
+            count++;
+            std::cerr << "[GCS] Processing object " << count << std::endl;
+            
             if (!object_metadata) {
-                std::cerr << "Error listing objects: " << object_metadata.status().message() << std::endl;
+                std::cerr << "[GCS] Error on object " << count << ": " 
+                          << object_metadata.status().message() << std::endl;
+                std::cerr << "[GCS] Status code: " << object_metadata.status().code() << std::endl;
                 break;
             }
+            
+            std::cerr << "[GCS] Object " << count << ": " << object_metadata->name() << std::endl;
             
             ObjectMetadata obj_meta;
             obj_meta.name = object_metadata->name();
@@ -121,8 +132,10 @@ std::vector<ObjectMetadata> GCSClient::listObjects(
             
             results.push_back(obj_meta);
         }
+        
+        std::cerr << "[GCS] Loop finished. Processed " << count << " items, returned " << results.size() << " results" << std::endl;
     } catch (const std::exception& e) {
-        std::cerr << "Error listing objects: " << e.what() << std::endl;
+        std::cerr << "[GCS] Error listing objects: " << e.what() << std::endl;
     }
     
     return results;

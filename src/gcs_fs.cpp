@@ -6,8 +6,128 @@
 #include <algorithm>
 #include <set>
 #include <chrono>
+#include <thread>
 #include <cstdarg>
 #include <fuse_log.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <signal.h>
+#include <fstream>
+#include <sstream>
+
+namespace {
+    // Get device major/minor number for a mount point
+    bool getDeviceMajorMinor(const std::string& mount_point, unsigned int& major, unsigned int& minor) {
+        struct stat st;
+        if (stat(mount_point.c_str(), &st) != 0) {
+            std::cerr << "[WARN] Failed to stat mount point: " << mount_point << std::endl;
+            return false;
+        }
+        
+        major = (st.st_dev >> 8) & 0xff;
+        minor = st.st_dev & 0xff;
+        return true;
+    }
+    
+    // Set kernel read-ahead via sysfs
+    // Why system() can cause VM to hang:
+    // 1. system() spawns /bin/sh and blocks waiting for completion
+    // 2. If sudo prompts for password (even with -n), shell may hang waiting for input
+    // 3. Shell I/O redirection can deadlock if file descriptors are inherited incorrectly
+    // 4. No timeout - if subprocess hangs, system() blocks forever
+    // 5. During FUSE init(), this blocks the entire mount process
+    void setKernelReadAhead(const std::string& mount_point, int readahead_kb, bool debug) {
+        unsigned int major, minor;
+        if (!getDeviceMajorMinor(mount_point, major, minor)) {
+            return;
+        }
+        
+        // Build sysfs path: /sys/class/bdi/<major>:<minor>/read_ahead_kb
+        std::ostringstream sysfs_path;
+        sysfs_path << "/sys/class/bdi/" << major << ":" << minor << "/read_ahead_kb";
+        
+        if (debug) {
+            std::cout << "[DEBUG] Setting kernel read-ahead to " << readahead_kb 
+                      << " KB via " << sysfs_path.str() << std::endl;
+        }
+        
+        // First try direct write (works if running as root)
+        std::ofstream sysfs_file(sysfs_path.str());
+        if (sysfs_file.is_open()) {
+            sysfs_file << readahead_kb;
+            sysfs_file.close();
+            if (sysfs_file.good()) {
+                if (debug) {
+                    std::cout << "[DEBUG] Kernel read-ahead successfully set to " << readahead_kb << " KB" << std::endl;
+                }
+                return;
+            }
+        }
+        
+        // Fallback to sudo only if direct write failed
+        // Use fork/exec with timeout instead of system() to prevent VM freeze
+        if (debug) {
+            std::cout << "[DEBUG] Direct write failed, trying with sudo (2s timeout)..." << std::endl;
+        }
+        
+        pid_t pid = fork();
+        if (pid == 0) {
+            // Child process: execute sudo command
+            // Redirect output to /dev/null
+            int devnull = open("/dev/null", O_WRONLY);
+            dup2(devnull, STDOUT_FILENO);
+            dup2(devnull, STDERR_FILENO);
+            close(devnull);
+            
+            std::ostringstream kb_str;
+            kb_str << readahead_kb;
+            
+            execlp("/bin/sh", "sh", "-c",
+                   ("echo " + kb_str.str() + " | sudo -n tee " + sysfs_path.str()).c_str(),
+                   nullptr);
+            
+            // If exec fails, exit immediately
+            _exit(1);
+        } else if (pid > 0) {
+            // Parent process: wait with timeout
+            auto start = std::chrono::steady_clock::now();
+            const int timeout_seconds = 2;
+            
+            while (true) {
+                int status;
+                pid_t result = waitpid(pid, &status, WNOHANG);
+                
+                if (result == pid) {
+                    // Child completed
+                    if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+                        if (debug) {
+                            std::cout << "[DEBUG] Kernel read-ahead successfully set to " << readahead_kb << " KB (via sudo)" << std::endl;
+                        }
+                    } else {
+                        std::cerr << "[WARN] Failed to set kernel read-ahead. "
+                                  << "Run as root or configure passwordless sudo." << std::endl;
+                    }
+                    return;
+                }
+                
+                auto elapsed = std::chrono::steady_clock::now() - start;
+                if (elapsed > std::chrono::seconds(timeout_seconds)) {
+                    // Timeout - kill child and return
+                    std::cerr << "[WARN] Kernel read-ahead setup timed out after " << timeout_seconds << "s. Killing subprocess." << std::endl;
+                    kill(pid, SIGKILL);
+                    waitpid(pid, nullptr, 0);  // Clean up zombie
+                    return;
+                }
+                
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+        } else {
+            // Fork failed
+            std::cerr << "[WARN] Failed to fork for kernel read-ahead setup" << std::endl;
+        }
+    }
+}
 
 GCSFS::GCSFS(const std::string& bucket_name, const GCSFSConfig& config)
     : bucket_name_(bucket_name),
@@ -134,6 +254,86 @@ bool GCSFS::isDirectory(const std::string& path) const
     return gcs_client_.directoryExists(bucket_name_, dir_prefix);
 }
 
+void* GCSFS::init(struct fuse_conn_info *conn, struct fuse_config *cfg)
+{
+    const auto ptr = this_();
+    
+    // Apply FUSE performance configuration
+    if (ptr->config_.debug_mode) {
+        std::cout << "[DEBUG] Configuring FUSE performance options:" << std::endl;
+        std::cout << "[DEBUG]   max_background: " << ptr->config_.max_background << std::endl;
+        std::cout << "[DEBUG]   congestion_threshold: " << ptr->config_.congestion_threshold << std::endl;
+        std::cout << "[DEBUG]   async_read: " << (ptr->config_.async_read ? "enabled" : "disabled") << std::endl;
+        std::cout << "[DEBUG]   max_readahead: " << ptr->config_.max_readahead << " bytes" << std::endl;
+    }
+    
+    // Configure connection options
+    conn->max_background = ptr->config_.max_background;
+    conn->congestion_threshold = ptr->config_.congestion_threshold;
+    
+    // Configure async read
+    if (ptr->config_.async_read) {
+        conn->want |= FUSE_CAP_ASYNC_READ;
+    } else {
+        conn->want &= ~FUSE_CAP_ASYNC_READ;
+    }
+    
+    // Configure kernel readahead (only if explicitly set > 0)
+    if (ptr->config_.max_readahead > 0) {
+        conn->max_readahead = ptr->config_.max_readahead;
+        
+        if (ptr->config_.debug_mode) {
+            std::cout << "[DEBUG] Setting FUSE max_readahead to " << ptr->config_.max_readahead << " bytes" << std::endl;
+        }
+    } else if (ptr->config_.debug_mode) {
+        std::cout << "[DEBUG] Using system default read-ahead (max_readahead not configured)" << std::endl;
+    }
+    
+    return ptr;
+}
+
+int GCSFS::run(int argc, char **argv)
+{
+    // Use default FUSE run - kernel read-ahead will be configured after mount via init callback
+    return Fusepp::Fuse<GCSFS>::run(argc, argv);
+}
+
+void GCSFS::configureKernelReadAhead() const
+{
+    if (config_.max_readahead > 0) {
+        if (config_.debug_mode) {
+            std::cout << "[DEBUG] Waiting for mount to complete (max 5s timeout)..." << std::endl;
+        }
+        
+        // Wait and verify mount is actually completed (with timeout)
+        bool mounted = false;
+        for (int i = 0; i < 50; i++) {  // Max 5 seconds
+            std::ifstream mounts("/proc/mounts");
+            std::string line;
+            while (std::getline(mounts, line)) {
+                if (line.find(config_.mount_point) != std::string::npos) {
+                    mounted = true;
+                    break;
+                }
+            }
+            if (mounted) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        
+        if (!mounted) {
+            std::cerr << "[WARN] Mount point not detected in /proc/mounts after 5s, skipping kernel read-ahead setup" << std::endl;
+            return;
+        }
+        
+        if (config_.debug_mode) {
+            std::cout << "[DEBUG] Mount confirmed, configuring kernel block device read-ahead" << std::endl;
+        }
+        
+        // max_readahead is already in KB, use directly
+        setKernelReadAhead(config_.mount_point, config_.max_readahead, config_.debug_mode);
+    }
+}
+
 int GCSFS::getattr(const char *path, struct stat *stbuf, struct fuse_file_info *)
 {
     const auto ptr = this_();
@@ -248,8 +448,11 @@ int GCSFS::readdir(const char *path, void *buf, fuse_fill_dir_t filler,
     std::set<std::string> entries;
     
     try {
-        // List objects with this directory prefix and delimiter to get immediate children
-        auto objects = ptr->gcs_client_.listObjects(ptr->bucket_name_, dir_path, "/");
+        // List objects with this directory prefix (no delimiter to get all objects)
+        // We manually filter to show only direct children
+        // Note: Using delimiter would be more efficient, but the GCS C++ SDK's
+        // ListObjectsReader only provides objects, not common prefixes
+        auto objects = ptr->gcs_client_.listObjects(ptr->bucket_name_, dir_path, "");
         
         for (const auto& obj_meta : objects) {
             std::string name = obj_meta.name;
@@ -268,7 +471,7 @@ int GCSFS::readdir(const char *path, void *buf, fuse_fill_dir_t filler,
             bool is_subdir = false;
             
             if (slash_pos != std::string::npos) {
-                // Subdirectory
+                // Subdirectory - extract just the directory name
                 entry_name = relative.substr(0, slash_pos);
                 is_subdir = true;
             } else {

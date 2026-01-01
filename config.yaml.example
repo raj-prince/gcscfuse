@@ -14,6 +14,14 @@ stat_cache_timeout: 60  # seconds, 0 = no timeout
 # File content cache settings
 enable_file_content_cache: true
 
+# FUSE Performance settings
+max_background: 12
+congestion_threshold: 9
+async_read: true
+# max_readahead: 0  # KB (0 = use system default, set to e.g., 128 for 128 KB)
+#                   # WARNING: Setting this > 0 will attempt to configure kernel read-ahead
+#                   # which may require root/sudo and can hang the VM if misconfigured
+
 # Logging settings
 debug: false
 verbose: false
