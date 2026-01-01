@@ -45,20 +45,18 @@ GCSFS::GCSFS(const std::string& bucket_name, const GCSFSConfig& config)
     stat_cache_.setCacheTimeout(config_.stat_cache_timeout);
     
     // Initialize reader based on configuration
+    auto gcs_reader = std::make_unique<gcscfuse::GCSDirectReader>(
+        bucket_name_, 
+        gcs_client_, 
+        config_.debug_mode);
+    
     if (config_.enable_file_content_cache) {
-        auto gcs_reader = std::make_unique<gcscfuse::GCSDirectReader>(
-            bucket_name_, 
-            gcs_client_, 
-            config_.debug_mode);
         reader_ = std::make_unique<gcscfuse::CachedReader>(
             std::move(gcs_reader),
             config_.debug_mode,
             config_.verbose_logging);
     } else {
-        reader_ = std::make_unique<gcscfuse::GCSDirectReader>(
-            bucket_name_, 
-            gcs_client_, 
-            config_.debug_mode);
+        reader_ = std::move(gcs_reader);
     }
 }
 

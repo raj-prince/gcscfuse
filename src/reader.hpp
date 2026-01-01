@@ -174,15 +174,26 @@ private:
     bool verbose_logging_;
 };
 
-// Dummy reader - returns zeros for testing
+// Dummy reader - returns zeros up to a fixed size for testing
 class DummyReader : public IReader {
 public:
-    DummyReader() = default;
+    DummyReader(size_t max_size = 1024 * 1024) : max_size_(max_size) {}
     
     int read(const std::string& object_name, 
              char* buf, 
              size_t size, 
              off_t offset) override {
+        // Simulate a file of fixed size
+        if (static_cast<size_t>(offset) >= max_size_) {
+            return 0; // EOF
+        }
+        
+        // Calculate how much we can actually read
+        size_t available = max_size_ - offset;
+        if (size > available) {
+            size = available;
+        }
+        
         // Fill buffer with zeros
         std::memset(buf, 0, size);
         return static_cast<int>(size);
@@ -195,6 +206,9 @@ public:
     void clear() override {
         // No-op for dummy reader
     }
+
+private:
+    size_t max_size_;
 };
 
 } // namespace gcscfuse
