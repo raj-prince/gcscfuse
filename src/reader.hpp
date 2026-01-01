@@ -174,46 +174,27 @@ private:
     bool verbose_logging_;
 };
 
-// Dummy reader - returns predefined data for testing
+// Dummy reader - returns zeros for testing
 class DummyReader : public IReader {
 public:
     DummyReader() = default;
-    
-    // Set mock data for a specific object
-    void setMockData(const std::string& object_name, const std::string& content) {
-        mock_data_[object_name] = content;
-    }
     
     int read(const std::string& object_name, 
              char* buf, 
              size_t size, 
              off_t offset) override {
-        auto it = mock_data_.find(object_name);
-        if (it == mock_data_.end()) {
-            return -1; // Object not found
-        }
-        
-        const std::string& content = it->second;
-        size_t len = content.length();
-        
-        if (static_cast<size_t>(offset) >= len) {
-            return 0;
-        }
-        
-        if (offset + size > len) {
-            size = len - offset;
-        }
-        
-        std::memcpy(buf, content.c_str() + offset, size);
+        // Fill buffer with zeros
+        std::memset(buf, 0, size);
         return static_cast<int>(size);
     }
     
-    void clear() override {
-        mock_data_.clear();
+    void invalidate(const std::string&) override {
+        // No-op for dummy reader
     }
-
-private:
-    std::unordered_map<std::string, std::string> mock_data_;
+    
+    void clear() override {
+        // No-op for dummy reader
+    }
 };
 
 } // namespace gcscfuse
