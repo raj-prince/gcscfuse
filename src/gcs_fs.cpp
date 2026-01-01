@@ -43,70 +43,27 @@ GCSFS::GCSFS(const std::string& bucket_name, const GCSFSConfig& config)
         std::cout << "[DEBUG] File content cache: " << (config_.enable_file_content_cache ? "enabled" : "disabled") << std::endl;
     }
     stat_cache_.setCacheTimeout(config_.stat_cache_timeout);
+    
+    // Initialize reader based on configuration
+    auto gcs_reader = std::make_unique<gcscfuse::GCSDirectReader>(
+        bucket_name_, 
+        gcs_client_, 
+        config_.debug_mode);
+    
+    if (config_.enable_file_content_cache) {
+        reader_ = std::make_unique<gcscfuse::CachedReader>(
+            std::move(gcs_reader),
+            config_.debug_mode,
+            config_.verbose_logging);
+    } else {
+        reader_ = std::move(gcs_reader);
+    }
 }
 
 void GCSFS::loadFileList() const
 {
     // Deprecated - now using lazy per-directory loading
     // Kept for compatibility but does nothing
-}
-
-const std::string& GCSFS::getFileContent(const std::string& path) const
-{
-    // Remove leading slash
-    std::string object_name = path;
-    if (!object_name.empty() && object_name[0] == '/') {
-        object_name = object_name.substr(1);
-    }
-    
-    // Check cache first (if enabled)
-    if (config_.enable_file_content_cache) {
-        auto it = file_cache_.find(object_name);
-        if (it != file_cache_.end()) {
-            if (config_.debug_mode) {
-                std::cout << "[DEBUG] Cache hit for: " << object_name << std::endl;
-            }
-            return it->second;
-        }
-    }
-    
-    // Read from GCS
-    if (config_.debug_mode) {
-        std::cout << "[DEBUG] Reading from GCS: " << object_name << std::endl;
-    }
-    
-    gcscfuse::IGCSSDKClient::ReadObjectRequest req;
-    req.bucket_name = bucket_name_;
-    req.object_name = object_name;
-    // If you want a range read, set req.range = ... before calling this function
-
-    std::string content = gcs_client_.readObject(req);
-
-    if (content.empty()) {
-        std::cerr << "Error reading object: " << object_name << std::endl;
-        static const std::string empty;
-        return empty;
-    }
-
-    // Do not cache if this is a range read
-    if (req.range.has_value()) {
-        static thread_local std::string temp_content;
-        temp_content = std::move(content);
-        return temp_content;
-    }
-
-    // Cache the content (if enabled)
-    if (config_.enable_file_content_cache) {
-        file_cache_[object_name] = content;
-        if (config_.verbose_logging) {
-            std::cout << "Cached " << content.size() << " bytes for " << object_name << std::endl;
-        }
-        return file_cache_[object_name];
-    } else {
-        static thread_local std::string temp_content;
-        temp_content = std::move(content);
-        return temp_content;
-    }
 }
 
 bool GCSFS::isValidPath(const std::string& path) const
@@ -172,7 +129,32 @@ int GCSFS::getattr(const char *path, struct stat *stbuf, struct fuse_file_info *
     
     memset(stbuf, 0, sizeof(struct stat));
     
-    // Try to get stat from cache first (if enabled)
+    // Root directory handling
+    if (path == ptr->rootPath()) {
+        stbuf->st_mode = S_IFDIR | 0755;
+        stbuf->st_nlink = 2;
+        return 0;
+    }
+    
+    std::string object_name = path;
+    if (!object_name.empty() && object_name[0] == '/') {
+        object_name = object_name.substr(1);
+    }
+    
+    // 1. Check write buffer first (for dirty/modified files)
+    auto wb_it = ptr->write_buffers_.find(object_name);
+    if (wb_it != ptr->write_buffers_.end()) {
+        stbuf->st_mode = S_IFREG | 0644;
+        stbuf->st_nlink = 1;
+        stbuf->st_size = static_cast<off_t>(wb_it->second.length());
+        stbuf->st_mtime = time(nullptr);
+        if (ptr->config_.debug_mode) {
+            std::cout << "[DEBUG] getattr from write buffer: " << path << std::endl;
+        }
+        return 0;
+    }
+    
+    // 2. Try to get stat from cache (if enabled)
     if (ptr->config_.enable_stat_cache) {
         auto cached_stat = ptr->stat_cache_.getStat(path);
         if (cached_stat.has_value()) {
@@ -191,13 +173,7 @@ int GCSFS::getattr(const char *path, struct stat *stbuf, struct fuse_file_info *
         }
     }
     
-    // Fallback to old behavior if not in cache
-    if (path == ptr->rootPath()) {
-        stbuf->st_mode = S_IFDIR | 0755;
-        stbuf->st_nlink = 2;
-        return 0;
-    }
-    
+    // 3. Not in write buffer or cache - fetch from GCS and populate cache
     if (!ptr->isValidPath(path)) {
         return -ENOENT;
     }
@@ -206,26 +182,29 @@ int GCSFS::getattr(const char *path, struct stat *stbuf, struct fuse_file_info *
     if (ptr->isDirectory(path)) {
         stbuf->st_mode = S_IFDIR | 0755;
         stbuf->st_nlink = 2;
+        
+        // Populate stat cache for directory
+        if (ptr->config_.enable_stat_cache) {
+            ptr->stat_cache_.insertDirectory(path);
+        }
         return 0;
     }
     
-    // It's a file - with read-write permissions
+    // It's a file - fetch metadata from GCS
     stbuf->st_mode = S_IFREG | 0644;
     stbuf->st_nlink = 1;
     
-    // Get file size from write buffer or cache or GCS
-    std::string object_name = path;
-    if (!object_name.empty() && object_name[0] == '/') {
-        object_name = object_name.substr(1);
+    auto obj_meta = ptr->gcs_client_.getObjectMetadata(ptr->bucket_name_, object_name);
+    if (!obj_meta.has_value()) {
+        return -ENOENT;
     }
     
-    // Check write buffer first
-    auto wb_it = ptr->write_buffers_.find(object_name);
-    if (wb_it != ptr->write_buffers_.end()) {
-        stbuf->st_size = static_cast<off_t>(wb_it->second.length());
-    } else {
-        const auto& content = ptr->getFileContent(path);
-        stbuf->st_size = static_cast<off_t>(content.length());
+    stbuf->st_size = static_cast<off_t>(obj_meta->size);
+    stbuf->st_mtime = std::chrono::system_clock::to_time_t(obj_meta->updated);
+    
+    // Populate stat cache for future requests
+    if (ptr->config_.enable_stat_cache) {
+        ptr->stat_cache_.insertFile(path, stbuf->st_size, stbuf->st_mtime);
     }
     
     return 0;
@@ -390,35 +369,8 @@ int GCSFS::read(const char *path, char *buf, size_t size, off_t offset,
         return static_cast<int>(size);
     }
 
-    if (!ptr->config_.enable_file_content_cache) {
-        // Range read: pass offset/size to GCS
-        gcscfuse::IGCSSDKClient::ReadObjectRequest req;
-        req.bucket_name = ptr->bucket_name_;
-        req.object_name = object_name;
-        req.range = std::make_optional(std::make_pair(static_cast<std::int64_t>(offset), static_cast<std::int64_t>(offset + size)));
-        std::string content = ptr->gcs_client_.readObject(req);
-        size_t len = content.length();
-        if (len > 0) {
-            if (len < size) size = len;
-            memcpy(buf, content.c_str(), size);
-        } else {
-            size = 0;
-        }
-        return static_cast<int>(size);
-    } else {
-        // Cache is enabled. Use getFileContent which handles caching.
-        const std::string& content = ptr->getFileContent(path);
-        size_t len = content.length();
-        if (static_cast<size_t>(offset) < len) {
-            if (offset + size > len) {
-                size = len - offset;
-            }
-            memcpy(buf, content.c_str() + offset, size);
-        } else {
-            size = 0;
-        }
-        return static_cast<int>(size);
-    }
+    // Fall back to reader for persistent storage (GCS/Cache)
+    return ptr->reader_->read(object_name, buf, size, offset);
 }
 
 // ==================== Write Operations ====================
@@ -504,8 +456,29 @@ int GCSFS::truncate(const char *path, off_t size, struct fuse_file_info *)
     // Get current content
     std::string& content = ptr->write_buffers_[object_name];
     if (content.empty() && ptr->isValidPath(path)) {
-        // Load from GCS if not in write buffer yet
-        content = ptr->getFileContent(path);
+        // Load from persistent storage if not in write buffer yet
+        content.resize(1024 * 1024); // Start with 1MB
+        off_t total_read = 0;
+        
+        while (true) {
+            if (total_read >= static_cast<off_t>(content.size())) {
+                content.resize(content.size() * 2);
+            }
+            
+            int bytes_read = ptr->reader_->read(
+                object_name,
+                &content[total_read],
+                content.size() - total_read,
+                total_read);
+            
+            if (bytes_read <= 0) {
+                break;
+            }
+            
+            total_read += bytes_read;
+        }
+        
+        content.resize(total_read);
     }
     
     // Resize
@@ -594,7 +567,7 @@ int GCSFS::unlink(const char *path)
         }
         
         // Remove from caches
-        ptr->file_cache_.erase(object_name);
+        ptr->reader_->invalidate(object_name);
         ptr->write_buffers_.erase(object_name);
         ptr->dirty_files_.erase(object_name);
         ptr->stat_cache_.remove(std::string("/") + object_name);
@@ -639,10 +612,8 @@ int GCSFS::uploadToGCS(const std::string& path) const
             return -EIO;
         }
         
-        // Update file cache
-        if (config_.enable_file_content_cache) {
-            file_cache_[object_name] = content;
-        }
+        // Invalidate cache to ensure fresh read on next access
+        reader_->invalidate(object_name);
         
         // Clear dirty flag
         dirty_files_[object_name] = false;

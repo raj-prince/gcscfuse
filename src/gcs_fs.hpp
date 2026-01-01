@@ -5,10 +5,12 @@
 #include <string>
 #include <map>
 #include <vector>
+#include <memory>
 #include "fuse_cpp_wrapper.hpp"
 #include "gcs/gcs_client.hpp"
 #include "stat_cache.hpp"
 #include "config.hpp"
+#include "reader.hpp"
 
 /**
  * GCSFS - A FUSE filesystem that reads files from Google Cloud Storage
@@ -53,8 +55,8 @@ private:
     // Stat cache for metadata
     mutable StatCache stat_cache_;
     
-    // Cache for file contents
-    mutable std::map<std::string, std::string> file_cache_;
+    // Reader abstraction for persistent storage (GCS/Cache/Dummy)
+    std::unique_ptr<gcscfuse::IReader> reader_;
     
     // Deprecated: file_list_ and files_loaded_ are no longer used (lazy loading per-directory now)
     // mutable std::vector<std::string> file_list_;
@@ -66,7 +68,6 @@ private:
 
     // Helper functions
     void loadFileList() const;
-    const std::string& getFileContent(const std::string& path) const;
     bool isValidPath(const std::string& path) const;
     bool isDirectory(const std::string& path) const;
     
