@@ -177,26 +177,33 @@ private:
 // Dummy reader - returns zeros up to a fixed size for testing
 class DummyReader : public IReader {
 public:
-    DummyReader(size_t max_size = 100 * 1024 * 1024) : max_size_(max_size) {}
+    DummyReader(uint64_t max_size = (2ULL * 1024 * 1024 * 1024)) : max_size_(max_size) {}
     
     int read(const std::string& object_name, 
              char* buf, 
              size_t size, 
              off_t offset) override {
         // Simulate a file of fixed size
-        if (static_cast<size_t>(offset) >= max_size_) {
+        // Handle negative offset
+        if (offset < 0) {
+            return -1; // Invalid offset
+        }
+        
+        uint64_t unsigned_offset = static_cast<uint64_t>(offset);
+        
+        if (unsigned_offset >= max_size_) {
             return 0; // EOF
         }
         
-        // Calculate how much we can actually read
-        size_t available = max_size_ - offset;
-        if (size > available) {
-            size = available;
-        }
+        // Calculate how much we can actually read (using larger type)
+        uint64_t available = max_size_ - unsigned_offset;
+        uint64_t bytes_to_read = (static_cast<uint64_t>(size) > available) ? available : static_cast<uint64_t>(size);
         
         // Fill buffer with zeros
-        std::memset(buf, 0, size);
-        return static_cast<int>(size);
+        std::memset(buf, 0, static_cast<size_t>(bytes_to_read));
+        
+        // Safely cast to int (should never exceed INT_MAX in practice for read operations)
+        return static_cast<int>(bytes_to_read);
     }
     
     void invalidate(const std::string&) override {
@@ -208,7 +215,7 @@ public:
     }
 
 private:
-    size_t max_size_;
+    uint64_t max_size_;
 };
 
 } // namespace gcscfuse

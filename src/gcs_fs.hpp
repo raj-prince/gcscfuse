@@ -6,6 +6,8 @@
 #include <map>
 #include <vector>
 #include <memory>
+#include <mutex>
+#include <atomic>
 #include "fuse_cpp_wrapper.hpp"
 #include "gcs/gcs_client.hpp"
 #include "stat_cache.hpp"
@@ -20,6 +22,9 @@
  */
 class GCSFS : public Fusepp::Fuse<GCSFS>
 {
+    // Friend class for I/O depth tracking
+    friend class IODepthTracker;
+    
 public:
     explicit GCSFS(const std::string& bucket_name, const GCSFSConfig& config);
     ~GCSFS() override = default;
@@ -52,8 +57,12 @@ public:
     const std::string& bucketName() const { return bucket_name_; }
     const std::string& rootPath() const { return root_path_; }
     
-    // Configure kernel read-ahead after mount (called from main.cpp)
-    void configureKernelReadAhead() const;
+    // Configure FUSE kernel parameters after mount (called from main.cpp)
+    void configureFUSEKernelSettings() const;
+    
+    // I/O depth tracking helpers (public for IODepthTracker)
+    void incrementIODepth(const std::string& path, off_t offset, size_t size) const;
+    void decrementIODepth(const std::string& path) const;
 
 private:
     std::string bucket_name_;
@@ -74,6 +83,11 @@ private:
     // Write buffers for modified files (path -> content)
     mutable std::map<std::string, std::string> write_buffers_;
     mutable std::map<std::string, bool> dirty_files_;  // Track which files need sync
+    
+    // I/O depth tracking for read operations
+    mutable std::map<std::string, std::atomic<int>> read_io_depth_;  // Current I/O depth per file
+    mutable std::map<std::string, int> read_io_depth_max_;           // Max I/O depth seen per file
+    mutable std::mutex io_depth_mutex_;                              // Protects the maps
 
     // Helper functions
     void loadFileList() const;

@@ -16,7 +16,25 @@
 #include <fstream>
 #include <sstream>
 
+// Forward declare for friend relationship
+class GCSFS;
+
 namespace {
+    // RAII helper class to track I/O depth for read operations
+    class IODepthTracker {
+        GCSFS* fs_;
+        std::string path_;
+    public:
+        IODepthTracker(GCSFS* fs, const std::string& path, off_t offset, size_t size) 
+            : fs_(fs), path_(path) {
+            fs_->incrementIODepth(path_, offset, size);
+        }
+        
+        ~IODepthTracker() {
+            fs_->decrementIODepth(path_);
+        }
+    };
+    
     // Get device major/minor number for a mount point
     bool getDeviceMajorMinor(const std::string& mount_point, unsigned int& major, unsigned int& minor) {
         struct stat st;
@@ -37,36 +55,28 @@ namespace {
     // 3. Shell I/O redirection can deadlock if file descriptors are inherited incorrectly
     // 4. No timeout - if subprocess hangs, system() blocks forever
     // 5. During FUSE init(), this blocks the entire mount process
-    void setKernelReadAhead(const std::string& mount_point, int readahead_kb, bool debug) {
-        unsigned int major, minor;
-        if (!getDeviceMajorMinor(mount_point, major, minor)) {
-            return;
-        }
-        
-        // Build sysfs path: /sys/class/bdi/<major>:<minor>/read_ahead_kb
-        std::ostringstream sysfs_path;
-        sysfs_path << "/sys/class/bdi/" << major << ":" << minor << "/read_ahead_kb";
-        
+    
+    // Generic helper to set FUSE/kernel parameters via sysfs
+    bool setFUSEParameter(const std::string& sysfs_path, int value, const std::string& param_name, bool debug) {
         if (debug) {
-            std::cout << "[DEBUG] Setting kernel read-ahead to " << readahead_kb 
-                      << " KB via " << sysfs_path.str() << std::endl;
+            std::cout << "[DEBUG] Setting " << param_name << " to " << value 
+                      << " via " << sysfs_path << std::endl;
         }
         
         // First try direct write (works if running as root)
-        std::ofstream sysfs_file(sysfs_path.str());
+        std::ofstream sysfs_file(sysfs_path);
         if (sysfs_file.is_open()) {
-            sysfs_file << readahead_kb;
+            sysfs_file << value;
             sysfs_file.close();
             if (sysfs_file.good()) {
                 if (debug) {
-                    std::cout << "[DEBUG] Kernel read-ahead successfully set to " << readahead_kb << " KB" << std::endl;
+                    std::cout << "[DEBUG] " << param_name << " successfully set to " << value << std::endl;
                 }
-                return;
+                return true;
             }
         }
         
-        // Fallback to sudo only if direct write failed
-        // Use fork/exec with timeout instead of system() to prevent VM freeze
+        // Fallback to sudo with fork/exec and timeout
         if (debug) {
             std::cout << "[DEBUG] Direct write failed, trying with sudo (2s timeout)..." << std::endl;
         }
@@ -74,20 +84,18 @@ namespace {
         pid_t pid = fork();
         if (pid == 0) {
             // Child process: execute sudo command
-            // Redirect output to /dev/null
             int devnull = open("/dev/null", O_WRONLY);
             dup2(devnull, STDOUT_FILENO);
             dup2(devnull, STDERR_FILENO);
             close(devnull);
             
-            std::ostringstream kb_str;
-            kb_str << readahead_kb;
+            std::ostringstream val_str;
+            val_str << value;
             
             execlp("/bin/sh", "sh", "-c",
-                   ("echo " + kb_str.str() + " | sudo -n tee " + sysfs_path.str()).c_str(),
+                   ("echo " + val_str.str() + " | sudo -n tee " + sysfs_path).c_str(),
                    nullptr);
             
-            // If exec fails, exit immediately
             _exit(1);
         } else if (pid > 0) {
             // Parent process: wait with timeout
@@ -99,34 +107,104 @@ namespace {
                 pid_t result = waitpid(pid, &status, WNOHANG);
                 
                 if (result == pid) {
-                    // Child completed
                     if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
                         if (debug) {
-                            std::cout << "[DEBUG] Kernel read-ahead successfully set to " << readahead_kb << " KB (via sudo)" << std::endl;
+                            std::cout << "[DEBUG] " << param_name << " successfully set to " << value << " (via sudo)" << std::endl;
                         }
+                        return true;
                     } else {
-                        std::cerr << "[WARN] Failed to set kernel read-ahead. "
+                        std::cerr << "[WARN] Failed to set " << param_name << ". "
                                   << "Run as root or configure passwordless sudo." << std::endl;
+                        return false;
                     }
-                    return;
                 }
                 
                 auto elapsed = std::chrono::steady_clock::now() - start;
                 if (elapsed > std::chrono::seconds(timeout_seconds)) {
-                    // Timeout - kill child and return
-                    std::cerr << "[WARN] Kernel read-ahead setup timed out after " << timeout_seconds << "s. Killing subprocess." << std::endl;
+                    std::cerr << "[WARN] " << param_name << " setup timed out after " << timeout_seconds << "s. Killing subprocess." << std::endl;
                     kill(pid, SIGKILL);
-                    waitpid(pid, nullptr, 0);  // Clean up zombie
-                    return;
+                    waitpid(pid, nullptr, 0);
+                    return false;
                 }
                 
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
             }
         } else {
-            // Fork failed
-            std::cerr << "[WARN] Failed to fork for kernel read-ahead setup" << std::endl;
+            std::cerr << "[WARN] Failed to fork for " << param_name << " setup" << std::endl;
+            return false;
         }
+        
+        return false;
     }
+    
+    void setKernelReadAhead(const std::string& mount_point, int readahead_kb, bool debug) {
+        unsigned int major, minor;
+        if (!getDeviceMajorMinor(mount_point, major, minor)) {
+            return;
+        }
+        
+        // Build sysfs path: /sys/class/bdi/<major>:<minor>/read_ahead_kb
+        std::ostringstream sysfs_path;
+        sysfs_path << "/sys/class/bdi/" << major << ":" << minor << "/read_ahead_kb";
+        
+        setFUSEParameter(sysfs_path.str(), readahead_kb, "kernel read-ahead (KB)", debug);
+    }
+    
+    void setMaxBackground(const std::string& mount_point, int max_background, bool debug) {
+        unsigned int major, minor;
+        if (!getDeviceMajorMinor(mount_point, major, minor)) {
+            return;
+        }
+        
+        // Build sysfs path: /sys/fs/fuse/connections/<minor>/max_background
+        std::ostringstream sysfs_path;
+        sysfs_path << "/sys/fs/fuse/connections/" << minor << "/max_background";
+        
+        setFUSEParameter(sysfs_path.str(), max_background, "max_background", debug);
+    }
+    
+    void setCongestionThreshold(const std::string& mount_point, int congestion_threshold, bool debug) {
+        unsigned int major, minor;
+        if (!getDeviceMajorMinor(mount_point, major, minor)) {
+            return;
+        }
+        
+        // Build sysfs path: /sys/fs/fuse/connections/<minor>/congestion_threshold
+        std::ostringstream sysfs_path;
+        sysfs_path << "/sys/fs/fuse/connections/" << minor << "/congestion_threshold";
+        
+        setFUSEParameter(sysfs_path.str(), congestion_threshold, "congestion_threshold", debug);
+    }
+}  // End anonymous namespace
+
+// I/O Depth tracking implementation
+void GCSFS::incrementIODepth(const std::string& path, off_t offset, size_t size) const {
+    std::lock_guard<std::mutex> lock(io_depth_mutex_);
+    
+    // Initialize if not exists
+    if (read_io_depth_.find(path) == read_io_depth_.end()) {
+        read_io_depth_[path].store(0);
+        read_io_depth_max_[path] = 0;
+    }
+    
+    // Increment current depth
+    int current_depth = ++read_io_depth_[path];
+    
+    // Update max if needed
+    if (current_depth > read_io_depth_max_[path]) {
+        read_io_depth_max_[path] = current_depth;
+    }
+    
+    // Log if verbose or debug
+    if (config_.verbose_logging || config_.debug_mode) {
+        std::cout << "[IO-DEPTH] " << path << " - current: " << current_depth 
+                  << ", max: " << read_io_depth_max_[path] 
+                  << " (offset: " << offset << ", size: " << size << " bytes)" << std::endl;
+    }
+}
+
+void GCSFS::decrementIODepth(const std::string& path) const {
+    --read_io_depth_[path];
 }
 
 GCSFS::GCSFS(const std::string& bucket_name, const GCSFSConfig& config)
@@ -280,10 +358,12 @@ void* GCSFS::init(struct fuse_conn_info *conn, struct fuse_config *cfg)
     
     // Configure kernel readahead (only if explicitly set > 0)
     if (ptr->config_.max_readahead > 0) {
-        conn->max_readahead = ptr->config_.max_readahead;
+        // Convert KB to bytes for FUSE
+        conn->max_readahead = ptr->config_.max_readahead * 1024;
         
         if (ptr->config_.debug_mode) {
-            std::cout << "[DEBUG] Setting FUSE max_readahead to " << ptr->config_.max_readahead << " bytes" << std::endl;
+            std::cout << "[DEBUG] Setting FUSE max_readahead to " << ptr->config_.max_readahead << " KB (" 
+                      << conn->max_readahead << " bytes)" << std::endl;
         }
     } else if (ptr->config_.debug_mode) {
         std::cout << "[DEBUG] Using system default read-ahead (max_readahead not configured)" << std::endl;
@@ -298,40 +378,46 @@ int GCSFS::run(int argc, char **argv)
     return Fusepp::Fuse<GCSFS>::run(argc, argv);
 }
 
-void GCSFS::configureKernelReadAhead() const
+void GCSFS::configureFUSEKernelSettings() const
 {
-    if (config_.max_readahead > 0) {
-        if (config_.debug_mode) {
-            std::cout << "[DEBUG] Waiting for mount to complete (max 5s timeout)..." << std::endl;
-        }
-        
-        // Wait and verify mount is actually completed (with timeout)
-        bool mounted = false;
-        for (int i = 0; i < 50; i++) {  // Max 5 seconds
-            std::ifstream mounts("/proc/mounts");
-            std::string line;
-            while (std::getline(mounts, line)) {
-                if (line.find(config_.mount_point) != std::string::npos) {
-                    mounted = true;
-                    break;
-                }
+    if (config_.debug_mode) {
+        std::cout << "[DEBUG] Waiting for mount to complete (max 5s timeout)..." << std::endl;
+    }
+    
+    // Wait and verify mount is actually completed (with timeout)
+    bool mounted = false;
+    for (int i = 0; i < 50; i++) {  // Max 5 seconds
+        std::ifstream mounts("/proc/mounts");
+        std::string line;
+        while (std::getline(mounts, line)) {
+            if (line.find(config_.mount_point) != std::string::npos) {
+                mounted = true;
+                break;
             }
-            if (mounted) break;
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
-        
-        if (!mounted) {
-            std::cerr << "[WARN] Mount point not detected in /proc/mounts after 5s, skipping kernel read-ahead setup" << std::endl;
-            return;
-        }
-        
-        if (config_.debug_mode) {
-            std::cout << "[DEBUG] Mount confirmed, configuring kernel block device read-ahead" << std::endl;
-        }
-        
-        // max_readahead is already in KB, use directly
+        if (mounted) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    
+    if (!mounted) {
+        std::cerr << "[WARN] Mount point not detected in /proc/mounts after 5s, skipping kernel parameter setup" << std::endl;
+        return;
+    }
+    
+    if (config_.debug_mode) {
+        std::cout << "[DEBUG] Mount confirmed, configuring FUSE kernel parameters" << std::endl;
+    }
+    
+    // Set kernel read-ahead if configured
+    if (config_.max_readahead > 0) {
         setKernelReadAhead(config_.mount_point, config_.max_readahead, config_.debug_mode);
     }
+    
+    // Set max_background via sysfs (overrides FUSE connection setting)
+    setMaxBackground(config_.mount_point, config_.max_background, config_.debug_mode);
+    
+    // Set congestion_threshold via sysfs (overrides FUSE connection setting)
+    setCongestionThreshold(config_.mount_point, config_.congestion_threshold, config_.debug_mode);
 }
 
 int GCSFS::getattr(const char *path, struct stat *stbuf, struct fuse_file_info *)
@@ -563,6 +649,9 @@ int GCSFS::read(const char *path, char *buf, size_t size, off_t offset,
     if (!object_name.empty() && object_name[0] == '/') {
         object_name = object_name.substr(1);
     }
+    
+    // Track I/O depth for this read (RAII - auto decrements on exit)
+    IODepthTracker tracker(ptr, object_name, offset, size);
     
     // Check write buffer first (for recently written data)
     auto wb_it = ptr->write_buffers_.find(object_name);

@@ -20,13 +20,11 @@ int main(int argc, char *argv[])
         // Create and run filesystem
         GCSFS fs(config.bucket_name, config);
         
-        // Launch kernel read-ahead configuration in background after mount completes
+        // Launch FUSE kernel settings configuration in background after mount completes
         // This runs async and waits for mount to be confirmed before configuring
-        if (config.max_readahead > 0) {
-            std::thread([&fs]() {
-                fs.configureKernelReadAhead();
-            }).detach();
-        }
+        std::thread([&fs]() {
+            fs.configureFUSEKernelSettings();
+        }).detach();
         
         const auto status = fs.run(fuse_argc, fuse_argv);
         
