@@ -24,6 +24,12 @@ struct GCSFSConfig {
     // Testing settings
     bool enable_dummy_reader = false;
     
+    // FUSE performance settings
+    int max_background = 12;           // Max number of async requests (default FUSE value)
+    int congestion_threshold = 9;      // Congestion control (default FUSE value)
+    bool async_read = true;            // Enable async reads (default true)
+    int max_readahead = 0;             // Max kernel readahead in KB (0 = use system default)
+    
     // Logging settings
     bool debug_mode = false;
     bool verbose_logging = false;

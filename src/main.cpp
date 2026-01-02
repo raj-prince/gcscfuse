@@ -3,6 +3,8 @@
 #include "gcs_fs.hpp"
 #include "config.hpp"
 #include <iostream>
+#include <thread>
+#include <chrono>
 
 int main(int argc, char *argv[])
 {
@@ -17,6 +19,13 @@ int main(int argc, char *argv[])
         
         // Create and run filesystem
         GCSFS fs(config.bucket_name, config);
+        
+        // Launch FUSE kernel settings configuration in background after mount completes
+        // This runs async and waits for mount to be confirmed before configuring
+        std::thread([&fs]() {
+            fs.configureFUSEKernelSettings();
+        }).detach();
+        
         const auto status = fs.run(fuse_argc, fuse_argv);
         
         // Clean up allocated arguments
