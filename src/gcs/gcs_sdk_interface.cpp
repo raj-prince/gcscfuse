@@ -26,7 +26,10 @@ GCSSDKClientImpl::GCSSDKClientImpl(const std::string& protocol) {
 }
 
 gcs::ObjectReadStream GCSSDKClientImpl::ReadObject(const ReadObjectRequest& request) const {
-    return client_.ReadObject(request.bucket_name, request.object_name);
+    if (!request.range) {
+        return client_.ReadObject(request.bucket_name, request.object_name);
+    }
+    return client_.ReadObject(request.bucket_name, request.object_name, gcs::ReadRange(request.range->first, request.range->second));
 }
 
 StatusOr<gcs::ObjectMetadata> GCSSDKClientImpl::GetObjectMetadata(const GetObjectMetadataRequest& request) const {
