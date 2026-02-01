@@ -89,6 +89,8 @@ add_executable(gcscfuse
         src/config.cpp
         src/config.hpp
         src/fuse_cpp_wrapper.hpp
+        src/streaming_reader.cpp
+        src/streaming_reader.hpp
         src/gcs/gcs_client.cpp
         src/gcs/gcs_client.hpp
         src/gcs/gcs_sdk_interface.cpp

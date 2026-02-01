@@ -21,6 +21,8 @@ void GCSFSConfig::loadDefaults() {
     enable_stat_cache = true;
     stat_cache_timeout = 60;
     enable_file_content_cache = true;
+    enable_streaming_read = true;
+    streaming_max_size = 128 * 1024 * 1024;  // 128MB
     debug_mode = false;
     verbose_logging = false;
     protocol = "json";
@@ -64,6 +66,14 @@ bool GCSFSConfig::loadFromYAML(const std::string& config_path) {
         
         if (config["protocol"]) {
             protocol = config["protocol"].as<std::string>();
+        }
+        
+        if (config["enable_streaming_read"]) {
+            enable_streaming_read = config["enable_streaming_read"].as<bool>();
+        }
+        
+        if (config["streaming_max_size"]) {
+            streaming_max_size = config["streaming_max_size"].as<size_t>();
         }
         
         return true;
@@ -164,16 +174,18 @@ void GCSFSConfig::parseFromArgs(int argc, char* argv[]) {
     
     // Define long options
     static struct option long_options[] = {
-        {"config",                   required_argument, 0, 'c'},
-        {"protocol",                 required_argument, 0, 'p'},
+        {"config",                    required_argument, 0, 'c'},
+        {"protocol",                  required_argument, 0, 'p'},
         {"disable-stat-cache",        no_argument,       0, 's'},
-        {"stat-cache-ttl",           required_argument, 0, 'T'},
-        {"disable-file-cache",       no_argument,       0, 'f'},
+        {"stat-cache-ttl",            required_argument, 0, 'T'},
+        {"disable-file-cache",        no_argument,       0, 'f'},
         {"disable-file-content-cache",no_argument,       0, 'F'},
-        {"enable-dummy-reader",      no_argument,       0, 'D'},
-        {"debug",                    no_argument,       0, 'd'},
-        {"verbose",                  no_argument,       0, 'v'},
-        {"help",                     no_argument,       0, 'h'},
+        {"enable-dummy-reader",       no_argument,       0, 'D'},
+        {"disable-streaming-read",    no_argument,       0, 'S'},
+        {"streaming-max-size",        required_argument, 0, 'M'},
+        {"debug",                     no_argument,       0, 'd'},
+        {"verbose",                   no_argument,       0, 'v'},
+        {"help",                      no_argument,       0, 'h'},
         {0, 0, 0, 0}
     };
     
@@ -223,6 +235,14 @@ void GCSFSConfig::parseFromArgs(int argc, char* argv[]) {
             case 'D':
                 // --enable-dummy-reader
                 enable_dummy_reader = true;
+                break;
+            case 'S':
+                // --disable-streaming-read
+                enable_streaming_read = false;
+                break;
+            case 'M':
+                // --streaming-max-size
+                streaming_max_size = std::stoull(optarg);
                 break;
             case 'd':
                 // Could be --debug or FUSE -d
@@ -284,6 +304,8 @@ void GCSFSConfig::printUsage(const char* program_name) {
     std::cout << "  --disable-stat-cache     Disable stat metadata cache (enabled by default)\n";
     std::cout << "  --stat-cache-ttl=N       Stat cache timeout in seconds (default: 60, 0=no timeout)\n";
     std::cout << "  --disable-file-cache     Disable file content cache (enabled by default)\n";
+    std::cout << "  --disable-streaming-read Disable streaming read optimization (enabled by default)\n";
+    std::cout << "  --streaming-max-size=N   Maximum stream size in bytes (default: 128MB)\n";
     std::cout << "  --enable-dummy-reader    Use dummy reader for testing (returns zeros)\n";
     std::cout << "  --debug                  Enable debug logging\n";
     std::cout << "  --verbose                Enable verbose output\n";

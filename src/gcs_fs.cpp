@@ -1,6 +1,7 @@
 // GCS filesystem class implementation
 
 #include "gcs_fs.hpp"
+#include "streaming_reader.hpp"
 #include <cstring>
 #include <iostream>
 #include <algorithm>
@@ -59,6 +60,15 @@ GCSFS::GCSFS(const std::string& bucket_name, const GCSFSConfig& config)
             bucket_name_, 
             gcs_client_, 
             config_.debug_mode);
+    }
+    
+    // Wrap with streaming reader if enabled
+    if (config_.enable_streaming_read) {
+        std::cout << "[INFO] Streaming read enabled (max_size=" 
+                  << (config_.streaming_max_size / 1024 / 1024) << "MB)" << std::endl;
+        base_reader = std::make_unique<gcscfuse::StreamingReader>(
+            std::move(base_reader),
+            config_.streaming_max_size);
     }
     
     if (config_.enable_file_content_cache) {

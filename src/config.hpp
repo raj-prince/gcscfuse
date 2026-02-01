@@ -21,6 +21,10 @@ struct GCSFSConfig {
     // File content cache settings
     bool enable_file_content_cache = true;
     
+    // Streaming read settings
+    bool enable_streaming_read = true;
+    size_t streaming_max_size = 128 * 1024 * 1024;  // 128MB
+    
     // Testing settings
     bool enable_dummy_reader = false;
     
