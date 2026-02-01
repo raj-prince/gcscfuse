@@ -28,6 +28,9 @@ struct GCSFSConfig {
     bool debug_mode = false;
     bool verbose_logging = false;
     
+    // GCS protocol settings
+    std::string protocol = "json";  // "json" or "grpc"
+    
     // Bucket name (required)
     std::string bucket_name;
     

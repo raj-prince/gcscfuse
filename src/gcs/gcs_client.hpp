@@ -31,6 +31,8 @@ class GCSClient {
 public:
     GCSClient();
     explicit GCSClient(const gcs::Client& client);
+    // Constructor with protocol selection
+    explicit GCSClient(const std::string& protocol);
     // Constructor for dependency injection (enables mocking in tests)
     explicit GCSClient(std::unique_ptr<IGCSSDKClient> sdk_client);
     virtual ~GCSClient() = default;

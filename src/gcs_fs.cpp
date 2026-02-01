@@ -12,7 +12,7 @@
 GCSFS::GCSFS(const std::string& bucket_name, const GCSFSConfig& config)
     : bucket_name_(bucket_name),
       config_(config),
-      gcs_client_()
+      gcs_client_(config_.protocol)
 {
     // Set up FUSE logging if debug or verbose mode enabled
     if (config_.debug_mode || config_.verbose_logging) {

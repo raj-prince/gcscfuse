@@ -4,6 +4,7 @@
 #include <optional>
 #include <chrono>
 #include "google/cloud/storage/client.h"
+#include "google/cloud/storage/options.h"
 #include "google/cloud/status.h"
 #include "google/cloud/status_or.h"
 
@@ -102,6 +103,8 @@ class GCSSDKClientImpl : public IGCSSDKClient {
 public:
     GCSSDKClientImpl();
     explicit GCSSDKClientImpl(const gcs::Client& client);
+    // Constructor with protocol selection
+    explicit GCSSDKClientImpl(const std::string& protocol);
     
     gcs::ObjectReadStream ReadObject(const ReadObjectRequest& request) const override;
     

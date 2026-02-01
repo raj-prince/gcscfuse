@@ -23,6 +23,7 @@ void GCSFSConfig::loadDefaults() {
     enable_file_content_cache = true;
     debug_mode = false;
     verbose_logging = false;
+    protocol = "json";
     bucket_name = "";
     mount_point = "";
     fuse_args.clear();
@@ -61,6 +62,10 @@ bool GCSFSConfig::loadFromYAML(const std::string& config_path) {
             verbose_logging = config["verbose"].as<bool>();
         }
         
+        if (config["protocol"]) {
+            protocol = config["protocol"].as<std::string>();
+        }
+        
         return true;
     } catch (const YAML::BadFile&) {
         return false;  // File doesn't exist
@@ -92,6 +97,9 @@ void GCSFSConfig::loadFromEnv() {
     }
     if (const char* verbose = std::getenv("GCSFUSE_VERBOSE")) {
         verbose_logging = parseBool(verbose);
+    }
+    if (const char* proto = std::getenv("GCSFUSE_PROTOCOL")) {
+        protocol = proto;
     }
 }
 
@@ -147,6 +155,9 @@ void GCSFSConfig::validate() const {
     if (stat_cache_timeout < 0) {
         throw std::runtime_error("stat_cache_timeout must be >= 0");
     }
+    if (protocol != "json" && protocol != "grpc") {
+        throw std::runtime_error("protocol must be 'json' or 'grpc'");
+    }
 }
 
 void GCSFSConfig::parseFromArgs(int argc, char* argv[]) {
@@ -154,6 +165,7 @@ void GCSFSConfig::parseFromArgs(int argc, char* argv[]) {
     // Define long options
     static struct option long_options[] = {
         {"config",                   required_argument, 0, 'c'},
+        {"protocol",                 required_argument, 0, 'p'},
         {"disable-stat-cache",        no_argument,       0, 's'},
         {"stat-cache-ttl",           required_argument, 0, 'T'},
         {"disable-file-cache",       no_argument,       0, 'f'},
@@ -184,6 +196,9 @@ void GCSFSConfig::parseFromArgs(int argc, char* argv[]) {
         switch (opt) {
             case 'c':
                 // Config file already processed in load(), skip here
+                break;
+            case 'p':
+                protocol = optarg;
                 break;
             case 's':
                 enable_stat_cache = false;
@@ -265,6 +280,7 @@ void GCSFSConfig::printUsage(const char* program_name) {
     
     std::cout << "GCSFS options:\n";
     std::cout << "  --config=FILE            Load configuration from YAML file\n";
+    std::cout << "  --protocol=PROTO         GCS protocol: 'json' or 'grpc' (default: json)\n";
     std::cout << "  --disable-stat-cache     Disable stat metadata cache (enabled by default)\n";
     std::cout << "  --stat-cache-ttl=N       Stat cache timeout in seconds (default: 60, 0=no timeout)\n";
     std::cout << "  --disable-file-cache     Disable file content cache (enabled by default)\n";
@@ -281,6 +297,7 @@ void GCSFSConfig::printUsage(const char* program_name) {
     std::cout << "Environment variables:\n";
     std::cout << "  GCSFUSE_BUCKET           Bucket name (overridden by CLI/config)\n";
     std::cout << "  GCSFUSE_MOUNT_POINT      Mount point (overridden by CLI/config)\n";
+    std::cout << "  GCSFUSE_PROTOCOL         GCS protocol: 'json' or 'grpc'\n";
     std::cout << "  GCSFUSE_STAT_CACHE       Enable stat cache (true/false)\n";
     std::cout << "  GCSFUSE_FILE_CACHE       Enable file cache (true/false)\n";
     std::cout << "  GCSFUSE_DEBUG            Enable debug mode (true/false)\n\n";
@@ -303,6 +320,9 @@ void GCSFSConfig::toFuseArgs(int& out_argc, char**& out_argv) const {
     std::vector<std::string> args;
     args.push_back("gcs_fs");  // Program name
     args.push_back(mount_point);
+    
+    // Add subtype to ensure FUSE uses fusermount for non-root mounting
+    args.push_back("-osubtype=gcsfuse");
     
     for (const auto& arg : fuse_args) {
         args.push_back(arg);
