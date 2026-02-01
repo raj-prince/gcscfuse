@@ -1,7 +1,7 @@
 #pragma once
 
 #ifndef FUSE_USE_VERSION
-#define FUSE_USE_VERSION 35
+#define FUSE_USE_VERSION 31
 #endif
 
 #include <fuse.h>

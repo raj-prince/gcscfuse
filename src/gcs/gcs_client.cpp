@@ -8,6 +8,9 @@ GCSClient::GCSClient() : sdk_client_(std::make_unique<GCSSDKClientImpl>()) {}
 GCSClient::GCSClient(const gcs::Client& client) 
     : sdk_client_(std::make_unique<GCSSDKClientImpl>(client)) {}
 
+GCSClient::GCSClient(const std::string& protocol)
+    : sdk_client_(std::make_unique<GCSSDKClientImpl>(protocol)) {}
+
 GCSClient::GCSClient(std::unique_ptr<IGCSSDKClient> sdk_client) 
     : sdk_client_(std::move(sdk_client)) {}
 

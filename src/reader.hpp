@@ -1,6 +1,8 @@
 #pragma once
 
 #include <string>
+#include <cstring>
+#include <iostream>
 #include <memory>
 #include <unordered_map>
 #include "gcs/gcs_client.hpp"
@@ -51,8 +53,9 @@ public:
         req.range = std::make_optional(std::make_pair(
             static_cast<std::int64_t>(offset), 
             static_cast<std::int64_t>(offset + size)));
-        
+        std::cout << "[DEBUG] Requesting range: [" << req.range->first << ", " << req.range->second << ")" << std::endl;
         std::string content = gcs_client_.readObject(req);
+        std::cout << "[DEBUG] Read " << content.size() << " bytes from GCS" << std::endl;
         size_t len = content.length();
         
         if (len > 0) {
@@ -183,6 +186,8 @@ public:
              char* buf, 
              size_t size, 
              off_t offset) override {
+        std::cout << "[DEBUG] DummyReader reading " << size << " bytes from " << object_name 
+                  << " at offset " << offset << std::endl;
         // Simulate a file of fixed size
         if (static_cast<size_t>(offset) >= max_size_) {
             return 0; // EOF

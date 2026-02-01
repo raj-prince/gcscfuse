@@ -1,4 +1,8 @@
 #include "gcs_sdk_interface.hpp"
+#include "google/cloud/options.h"
+#include "google/cloud/storage/options.h"
+#include "google/cloud/storage/grpc_plugin.h"
+#include <iostream>
 
 namespace gcscfuse {
 
@@ -6,8 +10,26 @@ GCSSDKClientImpl::GCSSDKClientImpl() : client_(gcs::Client()) {}
 
 GCSSDKClientImpl::GCSSDKClientImpl(const gcs::Client& client) : client_(client) {}
 
+GCSSDKClientImpl::GCSSDKClientImpl(const std::string& protocol) {
+    if (protocol == "grpc") {
+        auto options = google::cloud::Options{};
+        client_ = gcs::MakeGrpcClient(options);
+        std::cout << "[INFO] gRPC client created successfully" << std::endl;
+        std::cout << "[INFO] Using gRPC transport for Google Cloud Storage" << std::endl;
+    } else if (protocol == "json") {
+        // Use default JSON/REST protocol with standard settings
+        client_ = gcs::Client();
+        std::cout << "[INFO] Using JSON/REST protocol" << std::endl;
+    } else {
+        throw std::runtime_error("Invalid protocol: " + protocol + ". Must be 'json' or 'grpc'");
+    }
+}
+
 gcs::ObjectReadStream GCSSDKClientImpl::ReadObject(const ReadObjectRequest& request) const {
-    return client_.ReadObject(request.bucket_name, request.object_name);
+    if (!request.range) {
+        return client_.ReadObject(request.bucket_name, request.object_name);
+    }
+    return client_.ReadObject(request.bucket_name, request.object_name, gcs::ReadRange(request.range->first, request.range->second));
 }
 
 StatusOr<gcs::ObjectMetadata> GCSSDKClientImpl::GetObjectMetadata(const GetObjectMetadataRequest& request) const {

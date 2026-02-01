@@ -7,6 +7,10 @@ bucket_name: my-bucket
 # Required: Mount point directory
 mount_point: /mnt/gcs
 
+# GCS protocol: 'json' (REST API) or 'grpc' (gRPC)
+# Default: json
+protocol: json
+
 # Stat cache settings
 enable_stat_cache: true
 stat_cache_timeout: 60  # seconds, 0 = no timeout

@@ -30,9 +30,13 @@
 cmake_minimum_required(VERSION 3.22)
 project(gcscfuse)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# Add compiler flags for google-cloud-cpp experimental features
+add_compile_options(-Wno-deprecated-declarations)
+set(GOOGLE_CLOUD_CPP_ENABLE_WERROR OFF CACHE BOOL "Disable werror for google-cloud-cpp")
 
 # Enable testing
 enable_testing()
@@ -53,6 +57,8 @@ pkg_check_modules(FUSE REQUIRED fuse3)
 
 # Find google-cloud-cpp (vcpkg will provide this)
 find_package(google_cloud_cpp_storage REQUIRED)
+find_package(google_cloud_cpp_storage_grpc REQUIRED)
+find_package(google_cloud_cpp_grpc_utils QUIET)
 
 # Find yaml-cpp
 find_package(yaml-cpp REQUIRED)
@@ -83,6 +89,8 @@ add_executable(gcscfuse
         src/config.cpp
         src/config.hpp
         src/fuse_cpp_wrapper.hpp
+        src/streaming_reader.cpp
+        src/streaming_reader.hpp
         src/gcs/gcs_client.cpp
         src/gcs/gcs_client.hpp
         src/gcs/gcs_sdk_interface.cpp
@@ -92,8 +100,15 @@ add_executable(gcscfuse
 target_link_libraries(gcscfuse 
     ${LIBS} 
     google-cloud-cpp::storage
+    google-cloud-cpp::storage_grpc
     yaml-cpp::yaml-cpp
 )
+
+# Link grpc_utils if available
+if(google_cloud_cpp_grpc_utils_FOUND)
+    target_link_libraries(gcscfuse google-cloud-cpp::grpc_utils)
+    message(STATUS "gRPC utilities found and linked")
+endif()
 
 # Create 'build' target as alias for main binary
 add_custom_target(build DEPENDS gcscfuse)
@@ -136,6 +151,7 @@ if(GTest_FOUND OR GTEST_FOUND)
             GTest::gtest_main
             GTest::gmock
             google-cloud-cpp::storage
+            google-cloud-cpp::storage_grpc
             pthread
         )
         target_link_libraries(run_reader_tests

@@ -7,10 +7,12 @@
   "dependencies": [
     {
       "name": "google-cloud-cpp",
-      "features": ["storage"]
+      "features": ["storage", "grpc-common", "storage-grpc"]
     },
+    "grpc",
+    "protobuf",
     "gtest",
     "yaml-cpp"
   ],
-  "builtin-baseline": "14bb451131ccf6be50a63a8d9dfe7980e46b5958"
+  "builtin-baseline": "d5ec528843d29e3a52d745a64b469f810b2cedbf"
 }
